@@ -1,6 +1,6 @@
 // Service worker: guarda o app para funcionar offline.
 // Ao publicar uma versão nova, mude o número abaixo para forçar a atualização.
-const CACHE = "ligalab-calc-v6";
+const CACHE = "ligalab-calc-v7";
 const ARQUIVOS = [
   "./",
   "index.html",
@@ -14,6 +14,7 @@ const ARQUIVOS = [
   "drive.js",
   "config.js",
   "manifest.webmanifest",
+  "privacidade.html",
   "icons/icon-180.png",
   "icons/icon-192.png",
   "icons/icon-512.png",

@@ -2,7 +2,8 @@
 // Sem dependência de tela nem de rede.
 
 /** Ajustes sincronizados. O rascunho da peça em edição fica só no aparelho. */
-export const CFG_KEYS = ["falha", "vh", "lucro", "taxa", "arred", "w", "kwh", "pimp", "vida", "manut"];
+// "padrao" guarda os padrões para novos pedidos (margem, tempo de trabalho e preço por material).
+export const CFG_KEYS = ["falha", "vh", "taxa", "arred", "w", "kwh", "pimp", "vida", "manut", "padrao"];
 const LISTAS = ["rolos", "clientes", "hist"];
 const APP_ID = "ligalab-calc3d-sync";
 
@@ -24,7 +25,7 @@ export function documento(st) {
 
 /** Grava um documento sincronizado no estado do app (sem tocar no rascunho da peça). */
 export function aplicar(st, doc) {
-  for (const k of CFG_KEYS) if (doc.cfg && doc.cfg[k] !== undefined) st[k] = doc.cfg[k];
+  for (const k of CFG_KEYS) if (doc.cfg && doc.cfg[k] !== undefined) st[k] = copia(doc.cfg[k]);
   st.cfgMod = Number(doc.cfgMod) || 0;
   for (const k of LISTAS) st[k] = copia(lista(doc[k]));
   st.apagados = copia(mapa(doc.apagados));

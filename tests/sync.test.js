@@ -12,7 +12,7 @@ test("documento: leva ajustes e listas, não o rascunho da peça", () => {
   const st = { pimp: "10000", kwh: "1,00", lucro: "50", h: "2", fils: [{ g: "80" }], nomePeca: "Vaso", cli: "c1", orc: { qtd: "3" }, rolos: [{ id: "r" }], clientes: [], hist: [{ id: "p" }], cfgMod: 5 };
   const d = documento(st);
   assert.equal(d.app, "ligalab-calc3d-sync");
-  assert.deepEqual(d.cfg, { lucro: "50", kwh: "1,00", pimp: "10000" });
+  assert.deepEqual(d.cfg, { kwh: "1,00", pimp: "10000" }); // a margem da peça em edição não é ajuste
   assert.equal(d.cfgMod, 5);
   assert.deepEqual(d.rolos, [{ id: "r" }]);
   assert.deepEqual(d.hist, [{ id: "p" }]);
@@ -177,4 +177,14 @@ test("mesclar: a ordem do resultado é a mesma partindo de qualquer aparelho", (
   // depois de um aparelho enviar o resultado, o outro não precisa enviar de novo
   assert.equal(mesclar(a, ab.doc).mudouB, false);
   assert.equal(mesclar(b, ab.doc).mudouB, false);
+});
+
+test("padrões para novos pedidos são sincronizados como ajustes", () => {
+  const padrao = { lucro: "100", mo: "30", precos: { PLA: "130" } };
+  const d = documento({ padrao, cfgMod: 4 });
+  assert.deepEqual(d.cfg.padrao, padrao);
+  const st = aplicar({ padrao: { lucro: "50" } }, d);
+  assert.deepEqual(st.padrao, padrao);
+  st.padrao.precos.PLA = "999";
+  assert.equal(d.cfg.padrao.precos.PLA, "130"); // aplicar copia, não compartilha
 });

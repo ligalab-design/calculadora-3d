@@ -1,7 +1,7 @@
 // Tela do app: liga os campos aos cálculos (calc.js), aos dados (dados.js) e à importação (importar.js).
 import { num, calcular, tabelaQuantidade, precoLote } from "./calc.js";
 import {
-  PECA_KEYS, STATUS, precoKg, novoRolo, baixarEstoque, faltaEstoque, estoqueBaixo, novoCliente,
+  PECA_KEYS, STATUS, precoKg, novoRolo, baixarEstoque, faltaEstoque, estoqueBaixo, novoCliente, atualizarPeca,
   entradaHistorico, valoresPedido, filtrarHistorico, resumoVendas, textoOrcamento, montarBackup, lerBackup,
 } from "./dados.js";
 import { lerGcode, ler3mf } from "./importar.js";
@@ -9,12 +9,14 @@ import { CFG_KEYS, documento, aplicar } from "./sync.js";
 import { criarNuvem } from "./nuvem.js";
 import { GOOGLE_CLIENT_ID } from "./config.js";
 
-const PRESETS = { PLA: 120, PETG: 130, ASA: 160, TPU: 170, Outro: 150 };
+const PRESETS = { PLA: 130, PETG: 130, ASA: 160, TPU: 170, Outro: 150 };
 const DEF = {
-  h: "2", m: "30", qtd: "1", falha: "5", extra: "0", mo: "10", vh: "30", lucro: "50", taxa: "0", arred: "nenhum",
-  w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", v: 2,
-  cli: "", cliNovo: "", pedStatus: "orcado", cfgMod: 0, apagados: {},
-  fils: [{ rolo: "", mat: "PLA", g: "80", kg: "120" }], rolos: [], hist: [], clientes: [],
+  h: "2", m: "30", qtd: "1", falha: "5", extra: "0", mo: "30", vh: "30", lucro: "100", taxa: "0", arred: "nenhum",
+  w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", v: 3,
+  cli: "", cliNovo: "", pedStatus: "orcado", editando: "", cfgMod: 0, apagados: {},
+  // Padrões aplicados a cada novo pedido (e ao duplicar). Editáveis na aba Calcular.
+  padrao: { lucro: "100", mo: "30", precos: { PLA: "130", PETG: "130", ASA: "160", TPU: "170", Outro: "150" } },
+  fils: [{ rolo: "", mat: "PLA", g: "80", kg: "130" }], rolos: [], hist: [], clientes: [],
   orc: { qtd: "", prazo: "5", validade: "7", obs: "" },
 };
 const IDS = ["h", "m", "qtd", "falha", "extra", "mo", "vh", "lucro", "taxa", "arred", "w", "kwh", "pimp", "vida", "manut", "precoFinal", "nomePeca", "cliNovo", "pedStatus"];
@@ -40,7 +42,14 @@ let saved = {};
 try { saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { saved = {}; }
 const st = Object.assign(clone(DEF), saved);
 // v2: novos valores padrão de impressora e tarifa valem também para quem já tinha dados salvos.
-if (saved.v !== 2) { st.pimp = DEF.pimp; st.kwh = DEF.kwh; st.v = 2; }
+if (!(saved.v >= 2)) { st.pimp = DEF.pimp; st.kwh = DEF.kwh; }
+// v3: margem 100%, tempo de trabalho 30 min e PLA a R$ 130/kg passam a valer também na peça em edição.
+if (!(saved.v >= 3)) {
+  st.padrao = clone(DEF.padrao); st.lucro = DEF.padrao.lucro; st.mo = DEF.padrao.mo;
+  if (Array.isArray(st.fils)) st.fils.forEach((f) => { if (f && !f.rolo && f.mat === "PLA" && f.kg === "120") f.kg = DEF.padrao.precos.PLA; });
+  st.cfgMod = Date.now();
+}
+st.v = 3;
 normalizar();
 
 function normalizar() {
@@ -51,7 +60,12 @@ function normalizar() {
   if (st.cli !== "novo" && !st.clientes.some((c) => c.id === st.cli)) st.cli = "";
   if (!STATUS.some(([s]) => s === st.pedStatus)) st.pedStatus = "orcado";
   if (!st.apagados || typeof st.apagados !== "object" || Array.isArray(st.apagados)) st.apagados = {};
+  const pd = st.padrao && typeof st.padrao === "object" ? st.padrao : {};
+  st.padrao = { lucro: String(pd.lucro ?? DEF.padrao.lucro), mo: String(pd.mo ?? DEF.padrao.mo), precos: Object.assign(clone(DEF.padrao.precos), pd.precos && typeof pd.precos === "object" ? pd.precos : {}) };
+  if (st.editando && !st.hist.some((h) => h.id === st.editando)) st.editando = "";
 }
+/** Preço por kg padrão de um material, para filamento sem rolo cadastrado. */
+const precoPadrao = (mat) => { const v = st.padrao.precos[mat]; return String(v !== undefined && v !== "" ? v : PRESETS[mat] ?? PRESETS.Outro); };
 let nuvem = null, aplicando = false;
 const save = () => {
   try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {}
@@ -120,7 +134,7 @@ $("fils").addEventListener("input", (e) => {
     const [tipo, val] = [t.value.slice(0, 1), t.value.slice(2)];
     const rolo = tipo === "r" && st.rolos.find((r) => r.id === val);
     if (rolo) { f.rolo = rolo.id; f.mat = rolo.mat; f.kg = precoKg(rolo).toFixed(2).replace(".", ","); }
-    else { f.rolo = ""; f.mat = val; f.kg = String(PRESETS[val] ?? PRESETS.Outro); }
+    else { f.rolo = ""; f.mat = val; f.kg = precoPadrao(val); }
     drawFils();
   } else f[k] = t.value;
   render();
@@ -129,7 +143,7 @@ $("fils").addEventListener("click", (e) => {
   const b = e.target.closest("[data-del]"); if (!b || st.fils.length < 2) return;
   st.fils.splice(+b.dataset.del, 1); drawFils(); render();
 });
-$("addFil").onclick = () => { st.fils.push({ rolo: "", mat: "PLA", g: "", kg: String(PRESETS.PLA) }); drawFils(); render(); };
+$("addFil").onclick = () => { st.fils.push({ rolo: "", mat: "PLA", g: "", kg: precoPadrao("PLA") }); drawFils(); render(); };
 
 $("pedStatus").innerHTML = opcoes(STATUS, st.pedStatus);
 IDS.forEach((id) => { $(id).value = st[id] ?? ""; $(id).addEventListener("input", () => { st[id] = $(id).value; if (CFG_KEYS.includes(id)) st.cfgMod = Date.now(); render(); }); });
@@ -152,7 +166,7 @@ $("impFile").addEventListener("change", async () => {
   $("impFile").value = "";
   if (!r.ok) { msg($("impMsg"), r.erro, false); return; }
   if (r.segundos) { const min = Math.round(r.segundos / 60); st.h = String(Math.floor(min / 60)); st.m = String(min % 60); }
-  if (r.fils.length) st.fils = r.fils.map((f) => ({ rolo: "", mat: f.mat, g: campo(f.g), kg: String(PRESETS[f.mat]) }));
+  if (r.fils.length) st.fils = r.fils.map((f) => ({ rolo: "", mat: f.mat, g: campo(f.g), kg: precoPadrao(f.mat) }));
   if (!st.nomePeca) st.nomePeca = file.name.replace(/(\.gcode)?\.(3mf|gcode|bgcode)$/i, "");
   carregarCampos();
   const peso = r.fils.reduce((t, f) => t + f.g, 0);
@@ -195,7 +209,12 @@ function render() {
   const falta = faltaEstoque(st.rolos, usoPedido);
   $("faltaTxt").hidden = !falta.length;
   $("faltaTxt").textContent = falta.map((f) => `${f.nome}: o pedido usa ${dec(f.precisa, 0)} g e restam ${dec(f.resto, 0)} g.`).join(" ");
-  $("baixarBox").hidden = !st.fils.some((f) => f.rolo);
+  // Editando um pedido salvo: salvar atualiza o mesmo pedido e não desconta estoque de novo.
+  const emEdicao = st.hist.find((h) => h.id === st.editando);
+  $("salvar").textContent = emEdicao ? "Salvar alterações" : "Salvar pedido";
+  $("editBox").hidden = !emEdicao;
+  if (emEdicao) $("editBox").textContent = `Editando o pedido “${emEdicao.nome}”. Salvar atualiza esse pedido; para começar outro, toque em “Novo pedido”.`;
+  $("baixarBox").hidden = !!emEdicao || !st.fils.some((f) => f.rolo);
   $("cliNovoBox").hidden = st.cli !== "novo";
 
   last = { parts, r, manual, ped };
@@ -210,15 +229,25 @@ $("copy").onclick = () => {
     ...parts.map((p) => `${p[0]}: ${brl(p[1])}`), `Custo total: ${brl(r.total)}`, `Custo por peça: ${brl(r.un)}`,
     `Preço de venda por peça: ${brl(r.precoFinal)}${manual ? ` (definido manualmente; sugerido ${brl(r.preco)})` : ""}`].join("\n"), $("copy"));
 };
+// Novo pedido: limpa a peça e aplica os padrões (margem, tempo de trabalho e preço do PLA).
 $("reset").onclick = () => {
-  ["h", "m", "extra", "mo"].forEach((id) => { st[id] = "0"; });
-  st.qtd = "1"; st.precoFinal = ""; st.nomePeca = ""; st.orc.qtd = ""; st.pedStatus = "orcado";
-  st.fils = [{ rolo: "", mat: "PLA", g: "", kg: String(PRESETS.PLA) }];
-  $("impMsg").hidden = true;
+  ["h", "m", "extra"].forEach((id) => { st[id] = "0"; });
+  st.mo = st.padrao.mo; st.lucro = st.padrao.lucro;
+  st.qtd = "1"; st.precoFinal = ""; st.nomePeca = ""; st.orc.qtd = ""; st.pedStatus = "orcado"; st.cli = ""; st.editando = "";
+  st.fils = [{ rolo: "", mat: "PLA", g: "", kg: precoPadrao("PLA") }];
+  $("impMsg").hidden = true; $("salvarMsg").hidden = true;
   carregarCampos();
 };
+// Padrões para novos pedidos.
+const PD = { pdLucro: ["lucro"], pdMo: ["mo"], pdPLA: ["precos", "PLA"], pdPETG: ["precos", "PETG"], pdASA: ["precos", "ASA"], pdTPU: ["precos", "TPU"], pdOutro: ["precos", "Outro"] };
+const pdValor = (c) => (c.length === 1 ? st.padrao[c[0]] : st.padrao[c[0]][c[1]]);
+Object.entries(PD).forEach(([id, c]) => {
+  $(id).value = pdValor(c) ?? "";
+  $(id).addEventListener("input", () => { if (c.length === 1) st.padrao[c[0]] = $(id).value; else st.padrao[c[0]][c[1]] = $(id).value; st.cfgMod = Date.now(); save(); });
+});
 function carregarCampos() {
   IDS.forEach((id) => { $(id).value = st[id] ?? ""; });
+  Object.entries(PD).forEach(([id, c]) => { $(id).value = pdValor(c) ?? ""; });
   Object.entries(ORC).forEach(([id, k]) => { $(id).value = st.orc[k] ?? ""; });
   drawCliSel(); drawFils(); render();
 }
@@ -247,11 +276,17 @@ $("salvar").onclick = () => {
     else st.cli = "";
     st.cliNovo = ""; $("cliNovo").value = ""; drawCliSel();
   }
-  const agora = new Date();
-  st.hist.unshift(toca(entradaHistorico(st, r, {
-    id: uid(), data: agora.toISOString(), dia: ymd(agora), nome: st.nomePeca,
-    cliente: st.cli, clienteNome: nomeCliente(), status: st.pedStatus, vendidas: ped.pecas, preco: ped.preco, un: ped.un,
-  })));
+  const agora = new Date(), i = st.hist.findIndex((h) => h.id === st.editando), antigo = st.hist[i];
+  const dados = { nome: st.nomePeca, cliente: st.cli, clienteNome: nomeCliente(), status: st.pedStatus, vendidas: ped.pecas, preco: ped.preco, un: ped.un };
+  if (antigo) {
+    // Edição: atualiza o mesmo pedido, mantendo a data em que foi criado.
+    st.hist[i] = toca(entradaHistorico(st, r, { ...dados, id: antigo.id, data: antigo.data, dia: antigo.dia }));
+    render(); msg($("salvarMsg"), "Alterações salvas ✓");
+    return;
+  }
+  const novo = toca(entradaHistorico(st, r, { ...dados, id: uid(), data: agora.toISOString(), dia: ymd(agora) }));
+  st.hist.unshift(novo);
+  st.editando = novo.id; // salvar de novo atualiza este pedido em vez de criar outro
   const baixou = !$("baixarBox").hidden && $("baixar").checked;
   if (baixou) {
     const antes = Object.fromEntries(st.rolos.map((x) => [x.id, x.resto]));
@@ -260,7 +295,7 @@ $("salvar").onclick = () => {
     drawFils();
   }
   render();
-  aviso($("salvar"), baixou ? "Salvo e estoque atualizado ✓" : "Salvo ✓");
+  msg($("salvarMsg"), baixou ? "Pedido salvo e estoque atualizado ✓" : "Pedido salvo ✓");
 };
 
 const filtro = { texto: "", status: "", periodo: "", cliente: "" };
@@ -293,8 +328,8 @@ function drawHistList() {
     <div class="sub">${e.clienteNome ? esc(e.clienteNome) + " · " : ""}${diaBr(e)} · ${v.pecas} peça(s) × ${brl(num(e.preco))} · lucro ${brl(v.lucro)}</div>
     <div class="sub">${dec(v.filamento)} g de filamento · ${tempo(num(e.horas))} por mesa · custo ${brl(num(e.un))} por peça</div>
     <div class="rrow"><div><label>Situação</label><select data-status="${esc(e.id)}">${opcoes(STATUS, e.status || "orcado")}</select></div>
-    <button type="button" data-abrir="${esc(e.id)}">Reabrir</button></div>
-    <div class="acts"><button type="button" data-excluir="${esc(e.id)}">Excluir pedido</button></div>
+    <button type="button" data-abrir="${esc(e.id)}">Editar</button></div>
+    <div class="acts"><button type="button" data-dup="${esc(e.id)}">Duplicar</button><button type="button" data-excluir="${esc(e.id)}">Excluir</button></div>
   </div>`;
   }).join("") : `<p class="hint" style="margin:0">${st.hist.length ? "Nenhum pedido corresponde aos filtros." : "Nenhum pedido salvo ainda. Na aba Calcular, dê um nome à peça e toque em “Salvar pedido”."}</p>`;
 }
@@ -304,14 +339,27 @@ $("histList").addEventListener("change", (e) => {
   it.status = e.target.value; toca(it); save(); drawHistList();
 });
 $("histList").addEventListener("click", (e) => {
-  const a = e.target.closest("[data-abrir]"), x = e.target.closest("[data-excluir]");
+  const a = e.target.closest("[data-abrir]"), x = e.target.closest("[data-excluir]"), d = e.target.closest("[data-dup]");
+  if (d) {
+    // Duplicar: novo pedido como orçamento, com o preço sugerido recalculado pelos valores de hoje.
+    const it = st.hist.find((h) => h.id === d.dataset.dup); if (!it || !it.snap) return;
+    const base = { ...st, ...atualizarPeca(it.snap, { lucro: st.padrao.lucro, precos: st.padrao.precos, rolos: st.rolos }) };
+    const r = calcular(base), pecas = Math.max(1, Math.round(num(it.vendidas)) || r.qtd), lote = precoLote(base, pecas), agora = new Date();
+    st.hist.unshift(toca(entradaHistorico(base, r, {
+      id: uid(), data: agora.toISOString(), dia: ymd(agora), nome: it.nome,
+      cliente: st.clientes.some((c) => c.id === it.cliente) ? it.cliente : "", clienteNome: it.clienteNome, status: "orcado", vendidas: pecas, preco: lote.preco, un: lote.un,
+    })));
+    save(); drawHistList(); window.scrollTo(0, 0);
+    return;
+  }
   if (a) {
     const it = st.hist.find((h) => h.id === a.dataset.abrir); if (!it || !it.snap) return;
     PECA_KEYS.forEach((k) => { if (it.snap[k] !== undefined) st[k] = clone(it.snap[k]); });
+    st.editando = it.id; $("salvarMsg").hidden = true;
     st.cli = it.cliente || ""; st.pedStatus = it.status || "orcado"; st.orc.qtd = it.vendidas ? String(it.vendidas) : ""; st.cfgMod = Date.now();
     normalizar(); carregarCampos(); mostrar("calcular"); location.hash = "calcular"; window.scrollTo(0, 0);
   }
-  if (x) confirma(x, () => { st.hist = st.hist.filter((h) => h.id !== x.dataset.excluir); apaga(x.dataset.excluir); save(); drawHistList(); });
+  if (x) confirma(x, () => { st.hist = st.hist.filter((h) => h.id !== x.dataset.excluir); apaga(x.dataset.excluir); normalizar(); render(); drawHistList(); });
 });
 
 // ---------- Resumo de vendas ----------

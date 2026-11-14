@@ -194,6 +194,26 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     </div>
     <p class="hint">Ajuste com o que você pagou e com a tarifa da sua conta de luz. Ficam salvos neste aparelho.</p>
   </details></section>
+
+  <section class="card"><details open>
+    <summary>Padrões para novos pedidos</summary>
+    <div class="row">
+      <div><label for="pdLucro">Margem de lucro</label><div class="fld"><input id="pdLucro" inputmode="decimal"><span class="u">%</span></div></div>
+      <div><label for="pdMo">Tempo de trabalho</label><div class="fld"><input id="pdMo" inputmode="decimal"><span class="u">min</span></div></div>
+    </div>
+    <label>Preço do filamento sem rolo cadastrado (R$/kg)</label>
+    <div class="row three">
+      <div><label for="pdPLA">PLA</label><input id="pdPLA" inputmode="decimal"></div>
+      <div><label for="pdPETG">PETG</label><input id="pdPETG" inputmode="decimal"></div>
+      <div><label for="pdASA">ASA</label><input id="pdASA" inputmode="decimal"></div>
+    </div>
+    <div class="row three">
+      <div><label for="pdTPU">TPU</label><input id="pdTPU" inputmode="decimal"></div>
+      <div><label for="pdOutro">Outro</label><input id="pdOutro" inputmode="decimal"></div>
+      <div></div>
+    </div>
+    <p class="hint">Valem a partir do próximo “Novo pedido” e ao duplicar um pedido. A peça que está na tela e os pedidos já salvos não mudam.</p>
+  </details></section>
 </div>
 
 <div>
@@ -224,7 +244,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     </div>
     <div class="acts">
       <button id="copy" type="button">Copiar resumo</button>
-      <button id="reset" type="button">Limpar peça</button>
+      <button id="reset" type="button">Novo pedido</button>
     </div>
   </details></section>
 
@@ -240,10 +260,12 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     <label for="pedStatus">Situação</label>
     <select id="pedStatus"></select>
     <label class="chk" id="baixarBox" hidden><input type="checkbox" id="baixar" checked> Descontar o filamento do estoque ao salvar</label>
+    <p class="hint" id="editBox" hidden></p>
     <div class="acts">
       <button class="pri" id="salvar" type="button">Salvar pedido</button>
       <button id="abrirOrc" type="button">Orçamento para cliente</button>
     </div>
+    <p class="msg" id="salvarMsg" hidden></p>
     <div id="orcBox" hidden>
       <div class="row" style="margin-top:14px">
         <div><label for="orcPrazo">Prazo de produção</label><div class="fld"><input id="orcPrazo" inputmode="numeric"><span class="u">dias</span></div></div>

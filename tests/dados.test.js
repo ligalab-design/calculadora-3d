@@ -306,3 +306,49 @@ test("resumoVendas: sem vendas devolve zeros", () => {
   assert.deepEqual(r.total, { pedidos: 0, pecas: 0, receita: 0, lucro: 0, filamento: 0, aReceber: 0 });
   assert.deepEqual(resumoVendas([ped({ status: "orcado" })]).meses, []);
 });
+
+// ---------- Duplicar pedido ----------
+import { atualizarPeca } from "../dados.js";
+
+const snapAntigo = {
+  fils: [{ rolo: "a", mat: "PLA", g: "100", kg: "99,00" }, { rolo: "", mat: "PETG", g: "20", kg: "110" }, { rolo: "sumiu", mat: "TPU", g: "5", kg: "150" }],
+  h: "2", m: "0", qtd: "1", mo: "15", lucro: "50", precoFinal: "45", nomePeca: "Vaso",
+};
+
+test("atualizarPeca: margem padrão, sem preço manual, e mantém peso, tempo e mão de obra", () => {
+  const p = atualizarPeca(snapAntigo, { lucro: "100", precos: {}, rolos: [] });
+  assert.equal(p.lucro, "100");
+  assert.equal(p.precoFinal, "");
+  assert.equal(p.h, "2");
+  assert.equal(p.mo, "15");
+  assert.equal(p.nomePeca, "Vaso");
+  assert.deepEqual(p.fils.map((f) => f.g), ["100", "20", "5"]);
+});
+
+test("atualizarPeca: filamento de rolo usa o preço atual do rolo", () => {
+  const p = atualizarPeca(snapAntigo, { lucro: "100", precos: { PLA: "130" }, rolos: [{ id: "a", mat: "PLA", peso: 1000, preco: 140 }] });
+  assert.equal(p.fils[0].rolo, "a");
+  assert.equal(p.fils[0].kg, "140,00");
+});
+
+test("atualizarPeca: filamento genérico usa o preço padrão do material; rolo excluído vira genérico", () => {
+  const p = atualizarPeca(snapAntigo, { lucro: "100", precos: { PLA: "130", PETG: "135", TPU: "180" }, rolos: [] });
+  assert.deepEqual(p.fils.map((f) => [f.rolo, f.kg]), [["", "130"], ["", "135"], ["", "180"]]);
+});
+
+test("atualizarPeca: material sem preço padrão mantém o preço que tinha", () => {
+  const p = atualizarPeca(snapAntigo, { lucro: "100", precos: { PLA: "" }, rolos: [] });
+  assert.equal(p.fils[0].kg, "99,00");
+  assert.equal(p.fils[1].kg, "110");
+});
+
+test("atualizarPeca: não altera o pedido original e o preço sugerido reflete os valores novos", () => {
+  const original = JSON.parse(JSON.stringify(snapAntigo));
+  const p = atualizarPeca(snapAntigo, { lucro: "100", precos: { PLA: "130", PETG: "130", TPU: "170" }, rolos: [] });
+  assert.deepEqual(snapAntigo, original);
+  const zero = { falha: "0", extra: "0", vh: "0", taxa: "0", w: "0", kwh: "0", pimp: "0", vida: "0", manut: "0" };
+  const antes = calcular({ ...zero, ...snapAntigo, precoFinal: "" }), depois = calcular({ ...zero, ...p });
+  perto(antes.preco, (9.9 + 2.2 + 0.75) * 1.5);
+  perto(depois.preco, (13 + 2.6 + 0.85) * 2);
+  perto(depois.precoFinal, depois.preco);
+});

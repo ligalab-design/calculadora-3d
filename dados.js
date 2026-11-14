@@ -141,6 +141,24 @@ export function entradaHistorico(st, r, { id, data, dia, nome, cliente, clienteN
   };
 }
 
+/**
+ * Atualiza os campos de uma peça (snap de um pedido) com os valores de hoje, para duplicar:
+ * margem padrão, preço atual dos filamentos (do rolo, se ainda existir; senão o padrão do material)
+ * e sem preço definido à mão — o preço volta a ser o sugerido.
+ */
+export function atualizarPeca(snap, { lucro, precos, rolos }) {
+  const p = copia(snap || {});
+  p.lucro = String(lucro ?? p.lucro ?? "");
+  p.precoFinal = "";
+  p.fils = (Array.isArray(p.fils) ? p.fils : []).map((f) => {
+    const rolo = (rolos || []).find((r) => r.id === f.rolo);
+    if (rolo) return { ...f, mat: rolo.mat, kg: precoKg(rolo).toFixed(2).replace(".", ",") };
+    const padrao = precos && precos[f.mat];
+    return { ...f, rolo: "", kg: padrao !== undefined && padrao !== "" ? String(padrao) : f.kg };
+  });
+  return p;
+}
+
 // ---------- Orçamento ----------
 
 /** Texto de orçamento para enviar ao cliente. Não expõe custos, só preço. */

@@ -370,3 +370,38 @@ test("entradaHistorico: guarda dimensões e cores para reabrir o pedido", () => 
   assert.equal(e.snap.dims, "120 × 80 × 45 mm");
   assert.equal(e.snap.cores, "Preto");
 });
+
+// ---------- Editar e duplicar rolo ----------
+import { editarRolo, duplicarRolo } from "../dados.js";
+
+const roloBase = { id: "a", nome: "PLA Preto", mat: "PLA", peso: 1000, preco: 120, resto: 300, mod: 7 };
+
+test("editarRolo: altera nome, material, peso, preço e restante", () => {
+  const r = editarRolo(roloBase, { nome: " PETG Azul ", mat: "PETG", peso: "750", preco: "99,90", resto: "640" });
+  assert.deepEqual(r, { id: "a", nome: "PETG Azul", mat: "PETG", peso: 750, preco: 99.9, resto: 640, mod: 7 });
+  assert.equal(roloBase.nome, "PLA Preto"); // não altera o original
+  perto(precoKg(r), 133.2);
+});
+
+test("editarRolo: campos vazios ou inválidos mantêm o valor anterior", () => {
+  const r = editarRolo(roloBase, { nome: "  ", mat: "", peso: "abc", preco: "", resto: "" });
+  assert.deepEqual(r, roloBase);
+  assert.deepEqual(editarRolo(roloBase, {}), roloBase);
+});
+
+test("editarRolo: restante zero e preço zero são aceitos quando digitados", () => {
+  const r = editarRolo(roloBase, { resto: "0", preco: "0" });
+  assert.equal(r.resto, 0);
+  assert.equal(r.preco, 0);
+});
+
+test("editarRolo: mudar o peso do rolo não mexe no restante", () => {
+  assert.equal(editarRolo(roloBase, { peso: "500" }).resto, 300);
+});
+
+test("duplicarRolo: copia os dados, com novo id, rolo cheio e sem a marca de alteração", () => {
+  const r = duplicarRolo(roloBase, "b");
+  assert.deepEqual(r, { id: "b", nome: "PLA Preto", mat: "PLA", peso: 1000, preco: 120, resto: 1000 });
+  assert.equal(roloBase.id, "a");
+  assert.equal(roloBase.resto, 300);
+});

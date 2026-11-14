@@ -21,6 +21,26 @@ export function novoRolo({ nome, mat, peso, preco }, id) {
   return { id, nome: String(nome || "").trim() || `${material} sem nome`, mat: material, peso: p, preco: num(preco), resto: p };
 }
 
+/**
+ * Devolve o rolo com os campos editados. Nome vazio e peso inválido mantêm o valor anterior;
+ * o peso restante pode ser informado à parte (não é recalculado ao mudar o peso do rolo).
+ */
+export function editarRolo(rolo, { nome, mat, peso, preco, resto }) {
+  const novo = { ...rolo };
+  if (String(nome ?? "").trim()) novo.nome = String(nome).trim();
+  if (mat) novo.mat = mat;
+  if (num(peso)) novo.peso = num(peso);
+  if (preco !== undefined && String(preco).trim() !== "") novo.preco = num(preco);
+  if (resto !== undefined && String(resto).trim() !== "") novo.resto = num(resto);
+  return novo;
+}
+
+/** Cópia de um rolo, cheia e com novo id — para cadastrar outro parecido (outra cor, por exemplo). */
+export function duplicarRolo(rolo, id) {
+  const { mod, ...resto } = rolo; // a marca de alteração é do novo rolo, não a do original
+  return { ...resto, id, resto: num(rolo.peso) };
+}
+
 /** Gramas usados por rolo numa impressão: { idDoRolo: gramas }. */
 function usoPorRolo(fils) {
   const uso = {};

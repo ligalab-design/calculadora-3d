@@ -346,7 +346,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
   </div>
   <div>
     <section class="card">
-      <p class="h">Cadastrar rolo</p>
+      <p class="h" id="rTit">Cadastrar rolo</p>
       <div class="row">
         <div><label for="rNome">Nome (marca, cor)</label><input id="rNome" placeholder="Ex.: PLA Preto Voolt" autocomplete="off"></div>
         <div><label for="rMat">Material</label><select id="rMat"></select></div>
@@ -355,8 +355,14 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
         <div><label for="rPeso">Peso do rolo</label><div class="fld"><input id="rPeso" inputmode="decimal" value="1000"><span class="u">g</span></div></div>
         <div><label for="rPreco">Preço pago</label><div class="fld"><input id="rPreco" inputmode="decimal"><span class="u">R$</span></div></div>
       </div>
-      <button class="pri" id="rAdd" type="button" style="width:100%">Cadastrar</button>
-      <p class="hint">O preço por kg é calculado pelo que você pagou. Ao salvar um pedido, o peso usado é descontado do rolo.</p>
+      <div class="row one" id="rRestoBox" hidden>
+        <div><label for="rResto">Peso restante</label><div class="fld"><input id="rResto" inputmode="decimal"><span class="u">g</span></div></div>
+      </div>
+      <div class="acts" style="margin-top:0">
+        <button class="pri" id="rAdd" type="button">Cadastrar</button>
+        <button id="rCancel" type="button" hidden>Cancelar</button>
+      </div>
+      <p class="hint">Para cadastrar um rolo parecido com outro, use “Duplicar” na lista e mude só o que for diferente. O preço por kg é calculado pelo que você pagou. Ao salvar um pedido, o peso usado é descontado do rolo.</p>
     </section>
   </div>
 </div>

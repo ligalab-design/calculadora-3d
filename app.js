@@ -1,7 +1,7 @@
 // Tela do app: liga os campos aos cálculos (calc.js), aos dados (dados.js) e à importação (importar.js).
 import { num, calcular, tabelaQuantidade, precoLote } from "./calc.js";
 import {
-  PECA_KEYS, STATUS, precoKg, novoRolo, baixarEstoque, faltaEstoque, estoqueBaixo, novoCliente, atualizarPeca,
+  PECA_KEYS, STATUS, precoKg, novoRolo, editarRolo, duplicarRolo, baixarEstoque, faltaEstoque, estoqueBaixo, novoCliente, atualizarPeca,
   entradaHistorico, valoresPedido, filtrarHistorico, resumoVendas, textoOrcamento, montarBackup, lerBackup,
 } from "./dados.js";
 import { lerGcode, ler3mf, coresUsadas, textoDimensoes } from "./importar.js";
@@ -85,7 +85,7 @@ function confirma(btn, fn) {
 function aviso(btn, txt, ms = 1800) {
   const t = btn.dataset.t || (btn.dataset.t = btn.textContent);
   btn.textContent = txt;
-  setTimeout(() => { btn.textContent = t; }, ms);
+  setTimeout(() => { if (btn.dataset.t === t) btn.textContent = t; }, ms); // não desfaz um rótulo trocado nesse meio-tempo
 }
 async function copiar(txt, btn) {
   try { await navigator.clipboard.writeText(txt); aviso(btn, "Copiado ✓"); }
@@ -391,11 +391,37 @@ function drawResumo() {
 
 // ---------- Filamentos ----------
 $("rMat").innerHTML = Object.keys(PRESETS).map((p) => `<option>${p}</option>`).join("");
-$("rAdd").onclick = () => {
-  if (!$("rNome").value.trim() && !num($("rPreco").value)) { aviso($("rAdd"), "Preencha nome e preço"); return; }
-  st.rolos.push(toca(novoRolo({ nome: $("rNome").value, mat: $("rMat").value, peso: $("rPeso").value, preco: $("rPreco").value }, uid())));
-  $("rNome").value = ""; $("rPreco").value = "";
+let roloEdit = null; // id do rolo aberto no formulário, ou null para cadastrar um novo
+/** Abre um rolo no formulário para editar; sem rolo, volta ao modo de cadastro. */
+function abrirRolo(r) {
+  roloEdit = r ? r.id : null;
+  $("rTit").textContent = r ? "Editar rolo" : "Cadastrar rolo";
+  $("rAdd").textContent = r ? "Salvar alterações" : "Cadastrar";
+  delete $("rAdd").dataset.t;
+  $("rRestoBox").hidden = $("rCancel").hidden = !r;
+  $("rNome").value = r ? r.nome : ""; $("rMat").value = r ? r.mat : "PLA";
+  $("rPeso").value = r ? campo(num(r.peso)) : "1000"; $("rPreco").value = r ? num(r.preco).toFixed(2).replace(".", ",") : "";
+  $("rResto").value = r ? campo(num(r.resto)) : "";
+}
+/** Depois de mudar um rolo: atualiza o preço das linhas da peça que usam esse rolo e redesenha. */
+function roloMudou(r) {
+  if (r) st.fils.forEach((f) => { if (f.rolo === r.id) { f.mat = r.mat; f.kg = precoKg(r).toFixed(2).replace(".", ","); } });
   save(); drawRolos(); drawFils(); render();
+}
+$("rCancel").onclick = () => abrirRolo(null);
+$("rAdd").onclick = () => {
+  const campos = { nome: $("rNome").value, mat: $("rMat").value, peso: $("rPeso").value, preco: $("rPreco").value };
+  const i = st.rolos.findIndex((r) => r.id === roloEdit);
+  if (i >= 0) {
+    st.rolos[i] = toca(editarRolo(st.rolos[i], { ...campos, resto: $("rResto").value }));
+    const r = st.rolos[i];
+    abrirRolo(null); roloMudou(r);
+    aviso($("rAdd"), "Alterações salvas ✓");
+    return;
+  }
+  if (!$("rNome").value.trim() && !num($("rPreco").value)) { aviso($("rAdd"), "Preencha nome e preço"); return; }
+  st.rolos.push(toca(novoRolo(campos, uid())));
+  abrirRolo(null); roloMudou(null);
   aviso($("rAdd"), "Cadastrado ✓");
 };
 function drawRolos() {
@@ -406,18 +432,29 @@ function drawRolos() {
     <div class="stock${baixo ? " low" : ""}"><i style="width:${pct}%"></i></div>
     <div class="sub">${esc(r.mat)} · ${dec(num(r.resto), 0)} g de ${dec(num(r.peso), 0)} g · pago ${brl(num(r.preco))}</div>
     <div class="rrow"><div><label>Ajustar peso restante</label><div class="fld"><input inputmode="decimal" data-resto="${esc(r.id)}" value="${esc(campo(num(r.resto)))}"><span class="u">g</span></div></div>
-    <button type="button" data-rdel="${esc(r.id)}">Excluir</button></div>
+    <button type="button" data-redit="${esc(r.id)}">Editar</button></div>
+    <div class="acts"><button type="button" data-rdup="${esc(r.id)}">Duplicar</button><button type="button" data-rdel="${esc(r.id)}">Excluir</button></div>
   </div>`;
   }).join("") : `<p class="hint" style="margin:0">Nenhum rolo cadastrado. Cadastre para escolher o filamento pelo nome e acompanhar quanto resta.</p>`;
 }
 $("roloList").addEventListener("change", (e) => {
   const id = e.target.dataset.resto; if (id === undefined) return;
   const r = st.rolos.find((x) => x.id === id); if (!r) return;
-  r.resto = num(e.target.value); toca(r); save(); drawRolos(); drawFils(); render();
+  r.resto = num(e.target.value); toca(r); if (roloEdit === r.id) abrirRolo(r); save(); drawRolos(); drawFils(); render();
 });
 $("roloList").addEventListener("click", (e) => {
+  const ed = e.target.closest("[data-redit]"), dup = e.target.closest("[data-rdup]");
+  const irParaForm = () => { $("rNome").scrollIntoView({ block: "center", behavior: "smooth" }); $("rNome").focus({ preventScroll: true }); $("rNome").select(); };
+  if (ed) { const r = st.rolos.find((x) => x.id === ed.dataset.redit); if (r) { abrirRolo(r); irParaForm(); } return; }
+  if (dup) {
+    // Duplicar: cria um rolo igual, cheio, e já abre para ajustar o que muda (a cor, por exemplo).
+    const r = st.rolos.find((x) => x.id === dup.dataset.rdup); if (!r) return;
+    const copia = toca(duplicarRolo(r, uid()));
+    st.rolos.push(copia); roloMudou(null); abrirRolo(copia); irParaForm();
+    return;
+  }
   const b = e.target.closest("[data-rdel]"); if (!b) return;
-  confirma(b, () => { st.rolos = st.rolos.filter((r) => r.id !== b.dataset.rdel); apaga(b.dataset.rdel); normalizar(); save(); drawRolos(); drawFils(); render(); });
+  confirma(b, () => { if (roloEdit === b.dataset.rdel) abrirRolo(null); st.rolos = st.rolos.filter((r) => r.id !== b.dataset.rdel); apaga(b.dataset.rdel); normalizar(); save(); drawRolos(); drawFils(); render(); });
 });
 
 // ---------- Clientes ----------

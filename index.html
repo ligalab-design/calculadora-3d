@@ -107,6 +107,7 @@ tr.tot td{font-weight:700;border-bottom:0;padding-top:11px}
 .stock.low i{background:var(--warn)}
 .rrow{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px;align-items:end}
 .msg{font-size:.84rem;margin:12px 0 0;font-weight:500}
+.nvbar{width:100%;margin:-6px 0 16px;border-color:var(--tan);color:var(--tan-ink);font-size:.82rem;font-weight:600;min-height:42px}
 footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;margin-top:22px}
 </style>
 </head>
@@ -127,6 +128,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
   <button type="button" data-tab="filamentos">Rolos</button>
   <button type="button" data-tab="dados">Mais</button>
 </nav>
+<button type="button" class="nvbar" id="nvBar" hidden></button>
 
 <!-- ============ CALCULAR ============ -->
 <div class="grid" data-view="calcular">
@@ -335,6 +337,16 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
 
 <!-- ============ MAIS: CLIENTES E BACKUP ============ -->
 <div data-view="dados" hidden>
+  <section class="card" id="nvCard" hidden>
+    <p class="h">Sincronização com o Google Drive</p>
+    <p class="sub" id="nvTxt" style="margin:0"></p>
+    <div class="acts">
+      <button class="pri" id="nvConectar" type="button">Conectar conta Google</button>
+      <button class="pri" id="nvAgora" type="button" hidden>Sincronizar agora</button>
+      <button id="nvSair" type="button" hidden>Desconectar</button>
+    </div>
+    <p class="hint">Guarda pedidos, clientes, rolos e ajustes em um arquivo no seu Drive e junta os dados de todos os aparelhos conectados à mesma conta. O app só enxerga o arquivo que ele mesmo criou. A peça que está sendo calculada não é sincronizada.</p>
+  </section>
   <section class="card">
     <p class="h">Clientes</p>
     <div id="cliList"></div>

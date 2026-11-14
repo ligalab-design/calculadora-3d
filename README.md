@@ -16,8 +16,10 @@ https://ligalab-design.github.io/calculadora-3d/
 - Orçamento para cliente (texto para copiar ou abrir no WhatsApp)
 - Cadastro de filamentos com controle de estoque
 - Backup: exportar e importar todos os dados
+- Sincronização opcional com um arquivo no Google Drive (junta os dados de vários aparelhos)
 
-Os dados ficam salvos só no aparelho (localStorage).
+Os dados ficam salvos no aparelho (localStorage). Com a sincronização ligada, uma cópia vai para
+o arquivo `Liga Lab Calculadora 3D - dados.json` no Drive da conta conectada.
 
 ## Arquivos
 
@@ -26,6 +28,9 @@ Os dados ficam salvos só no aparelho (localStorage).
 - `calc.js` — cálculos (sem dependência de tela)
 - `dados.js` — filamentos, estoque, clientes, pedidos, resumo de vendas, orçamento e backup (sem dependência de tela)
 - `importar.js` e `zip.js` — leitura de arquivos fatiados (.gcode e .3mf)
+- `sync.js` — o que é sincronizado e como juntar dados de dois aparelhos (sem dependência de tela)
+- `nuvem.js` e `drive.js` — motor da sincronização, login do Google e arquivo no Drive
+- `config.js` — ID do cliente OAuth do Google (vazio = sincronização desligada)
 - `tests/` — testes automatizados de `calc.js`, `dados.js`, `importar.js` e `zip.js`
 - `sw.js` — funcionamento offline
 - `manifest.webmanifest` e `icons/` — nome e ícone do app
@@ -52,4 +57,4 @@ no GitHub Pages (Settings → Pages → Source: GitHub Actions).
 ## Atualizar o app
 
 Ao mudar qualquer arquivo, aumente o número em `CACHE` no `sw.js`
-(por exemplo, `ligalab-calc-v5`) para os aparelhos baixarem a versão nova.
+(por exemplo, `ligalab-calc-v6`) para os aparelhos baixarem a versão nova.

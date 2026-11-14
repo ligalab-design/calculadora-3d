@@ -5,12 +5,15 @@ import {
   entradaHistorico, valoresPedido, filtrarHistorico, resumoVendas, textoOrcamento, montarBackup, lerBackup,
 } from "./dados.js";
 import { lerGcode, ler3mf } from "./importar.js";
+import { CFG_KEYS, documento, aplicar } from "./sync.js";
+import { criarNuvem } from "./nuvem.js";
+import { GOOGLE_CLIENT_ID } from "./config.js";
 
 const PRESETS = { PLA: 120, PETG: 130, ASA: 160, TPU: 170, Outro: 150 };
 const DEF = {
   h: "2", m: "30", qtd: "1", falha: "5", extra: "0", mo: "10", vh: "30", lucro: "50", taxa: "0", arred: "nenhum",
   w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", v: 2,
-  cli: "", cliNovo: "", pedStatus: "orcado",
+  cli: "", cliNovo: "", pedStatus: "orcado", cfgMod: 0, apagados: {},
   fils: [{ rolo: "", mat: "PLA", g: "80", kg: "120" }], rolos: [], hist: [], clientes: [],
   orc: { qtd: "", prazo: "5", validade: "7", obs: "" },
 };
@@ -47,8 +50,16 @@ function normalizar() {
   st.fils.forEach((f) => { if (!f.rolo || !st.rolos.some((r) => r.id === f.rolo)) f.rolo = ""; });
   if (st.cli !== "novo" && !st.clientes.some((c) => c.id === st.cli)) st.cli = "";
   if (!STATUS.some(([s]) => s === st.pedStatus)) st.pedStatus = "orcado";
+  if (!st.apagados || typeof st.apagados !== "object" || Array.isArray(st.apagados)) st.apagados = {};
 }
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+let nuvem = null, aplicando = false;
+const save = () => {
+  try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {}
+  if (nuvem && !aplicando) nuvem.agendar();
+};
+// Marcas usadas pela sincronização para juntar dados de aparelhos diferentes.
+const toca = (item) => { item.mod = Date.now(); return item; };
+const apaga = (id) => { st.apagados[id] = Date.now(); };
 
 /** Botão de ação destrutiva: o primeiro toque pede confirmação, o segundo executa. */
 function confirma(btn, fn) {
@@ -121,7 +132,7 @@ $("fils").addEventListener("click", (e) => {
 $("addFil").onclick = () => { st.fils.push({ rolo: "", mat: "PLA", g: "", kg: String(PRESETS.PLA) }); drawFils(); render(); };
 
 $("pedStatus").innerHTML = opcoes(STATUS, st.pedStatus);
-IDS.forEach((id) => { $(id).value = st[id] ?? ""; $(id).addEventListener("input", () => { st[id] = $(id).value; render(); }); });
+IDS.forEach((id) => { $(id).value = st[id] ?? ""; $(id).addEventListener("input", () => { st[id] = $(id).value; if (CFG_KEYS.includes(id)) st.cfgMod = Date.now(); render(); }); });
 Object.entries(ORC).forEach(([id, k]) => { $(id).value = st.orc[k] ?? ""; $(id).addEventListener("input", () => { st.orc[k] = $(id).value; drawOrc(); save(); }); });
 
 // ---------- Calcular: importar do fatiador ----------
@@ -232,17 +243,22 @@ $("orcCopy").onclick = () => copiar($("orcTxt").value, $("orcCopy"));
 $("salvar").onclick = () => {
   const { r, ped } = last;
   if (st.cli === "novo") {
-    if (st.cliNovo.trim()) { const c = novoCliente({ nome: st.cliNovo }, uid()); st.clientes.push(c); st.cli = c.id; }
+    if (st.cliNovo.trim()) { const c = toca(novoCliente({ nome: st.cliNovo }, uid())); st.clientes.push(c); st.cli = c.id; }
     else st.cli = "";
     st.cliNovo = ""; $("cliNovo").value = ""; drawCliSel();
   }
   const agora = new Date();
-  st.hist.unshift(entradaHistorico(st, r, {
+  st.hist.unshift(toca(entradaHistorico(st, r, {
     id: uid(), data: agora.toISOString(), dia: ymd(agora), nome: st.nomePeca,
     cliente: st.cli, clienteNome: nomeCliente(), status: st.pedStatus, vendidas: ped.pecas, preco: ped.preco, un: ped.un,
-  }));
+  })));
   const baixou = !$("baixarBox").hidden && $("baixar").checked;
-  if (baixou) { st.rolos = baixarEstoque(st.rolos, st.fils, ped.fator); drawFils(); }
+  if (baixou) {
+    const antes = Object.fromEntries(st.rolos.map((x) => [x.id, x.resto]));
+    st.rolos = baixarEstoque(st.rolos, st.fils, ped.fator);
+    st.rolos.forEach((x) => { if (x.resto !== antes[x.id]) toca(x); });
+    drawFils();
+  }
   render();
   aviso($("salvar"), baixou ? "Salvo e estoque atualizado ✓" : "Salvo ✓");
 };
@@ -285,17 +301,17 @@ function drawHistList() {
 $("histList").addEventListener("change", (e) => {
   const id = e.target.dataset.status; if (id === undefined) return;
   const it = st.hist.find((h) => h.id === id); if (!it) return;
-  it.status = e.target.value; save(); drawHistList();
+  it.status = e.target.value; toca(it); save(); drawHistList();
 });
 $("histList").addEventListener("click", (e) => {
   const a = e.target.closest("[data-abrir]"), x = e.target.closest("[data-excluir]");
   if (a) {
     const it = st.hist.find((h) => h.id === a.dataset.abrir); if (!it || !it.snap) return;
     PECA_KEYS.forEach((k) => { if (it.snap[k] !== undefined) st[k] = clone(it.snap[k]); });
-    st.cli = it.cliente || ""; st.pedStatus = it.status || "orcado"; st.orc.qtd = it.vendidas ? String(it.vendidas) : "";
+    st.cli = it.cliente || ""; st.pedStatus = it.status || "orcado"; st.orc.qtd = it.vendidas ? String(it.vendidas) : ""; st.cfgMod = Date.now();
     normalizar(); carregarCampos(); mostrar("calcular"); location.hash = "calcular"; window.scrollTo(0, 0);
   }
-  if (x) confirma(x, () => { st.hist = st.hist.filter((h) => h.id !== x.dataset.excluir); save(); drawHistList(); });
+  if (x) confirma(x, () => { st.hist = st.hist.filter((h) => h.id !== x.dataset.excluir); apaga(x.dataset.excluir); save(); drawHistList(); });
 });
 
 // ---------- Resumo de vendas ----------
@@ -319,7 +335,7 @@ function drawResumo() {
 $("rMat").innerHTML = Object.keys(PRESETS).map((p) => `<option>${p}</option>`).join("");
 $("rAdd").onclick = () => {
   if (!$("rNome").value.trim() && !num($("rPreco").value)) { aviso($("rAdd"), "Preencha nome e preço"); return; }
-  st.rolos.push(novoRolo({ nome: $("rNome").value, mat: $("rMat").value, peso: $("rPeso").value, preco: $("rPreco").value }, uid()));
+  st.rolos.push(toca(novoRolo({ nome: $("rNome").value, mat: $("rMat").value, peso: $("rPeso").value, preco: $("rPreco").value }, uid())));
   $("rNome").value = ""; $("rPreco").value = "";
   save(); drawRolos(); drawFils(); render();
   aviso($("rAdd"), "Cadastrado ✓");
@@ -339,17 +355,17 @@ function drawRolos() {
 $("roloList").addEventListener("change", (e) => {
   const id = e.target.dataset.resto; if (id === undefined) return;
   const r = st.rolos.find((x) => x.id === id); if (!r) return;
-  r.resto = num(e.target.value); save(); drawRolos(); drawFils(); render();
+  r.resto = num(e.target.value); toca(r); save(); drawRolos(); drawFils(); render();
 });
 $("roloList").addEventListener("click", (e) => {
   const b = e.target.closest("[data-rdel]"); if (!b) return;
-  confirma(b, () => { st.rolos = st.rolos.filter((r) => r.id !== b.dataset.rdel); normalizar(); save(); drawRolos(); drawFils(); render(); });
+  confirma(b, () => { st.rolos = st.rolos.filter((r) => r.id !== b.dataset.rdel); apaga(b.dataset.rdel); normalizar(); save(); drawRolos(); drawFils(); render(); });
 });
 
 // ---------- Clientes ----------
 $("cAdd").onclick = () => {
   if (!$("cNome").value.trim()) { aviso($("cAdd"), "Informe o nome"); return; }
-  st.clientes.push(novoCliente({ nome: $("cNome").value, contato: $("cContato").value }, uid()));
+  st.clientes.push(toca(novoCliente({ nome: $("cNome").value, contato: $("cContato").value }, uid())));
   $("cNome").value = ""; $("cContato").value = "";
   save(); drawClientes(); drawCliSel();
   aviso($("cAdd"), "Cadastrado ✓");
@@ -367,8 +383,8 @@ function drawClientes() {
 $("cliList").addEventListener("click", (e) => {
   const v = e.target.closest("[data-cver]"), x = e.target.closest("[data-cdel]");
   if (v) { Object.assign(filtro, { texto: "", status: "", periodo: "", cliente: v.dataset.cver }); ["fTexto", "fStatus", "fPeriodo"].forEach((id) => { $(id).value = ""; }); mostrar("historico"); location.hash = "historico"; window.scrollTo(0, 0); }
-  // Excluir o cliente mantém os pedidos dele, com o nome que tinham.
-  if (x) confirma(x, () => { st.clientes = st.clientes.filter((c) => c.id !== x.dataset.cdel); st.hist.forEach((h) => { if (h.cliente === x.dataset.cdel) h.cliente = ""; }); normalizar(); save(); drawClientes(); drawCliSel(); render(); });
+  // Excluir o cliente não mexe nos pedidos dele: eles continuam com o nome que tinham.
+  if (x) confirma(x, () => { st.clientes = st.clientes.filter((c) => c.id !== x.dataset.cdel); apaga(x.dataset.cdel); normalizar(); save(); drawClientes(); drawCliSel(); render(); });
 });
 
 // ---------- Backup ----------
@@ -398,14 +414,54 @@ $("bImport").onclick = () => confirma($("bImport"), async () => {
   if (!res.ok) { msg($("iMsg"), res.erro, false); return; }
   Object.keys(st).forEach((k) => delete st[k]);
   Object.assign(st, clone(DEF), res.dados); st.v = 2;
+  // O backup restaurado passa a valer sobre o que estiver na nuvem.
+  st.apagados = {}; st.cfgMod = Date.now();
+  [...st.hist, ...st.clientes, ...st.rolos].forEach(toca);
   normalizar(); save();
   carregarCampos(); drawClientes();
   $("bFile").value = ""; b.disabled = true;
   msg($("iMsg"), `Backup importado: ${st.hist.length} pedido(s), ${st.clientes.length} cliente(s) e ${st.rolos.length} rolo(s).`);
 });
 
+// ---------- Sincronização com o Google Drive ----------
+function drawNuvem(i) {
+  const hora = i.ultima ? new Date(i.ultima).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+  const conta = i.email ? ` (${i.email})` : "";
+  const textos = {
+    desligada: "Desligada. Os dados ficam só neste aparelho.",
+    sincronizando: "Sincronizando…",
+    ok: `Em dia${conta}. Última sincronização: ${hora}.`,
+    reconectar: `Pausada${conta}: o acesso ao Google vale por cerca de 1 hora. Toque em “Sincronizar agora” para continuar.`,
+    erro: i.erro || "Não foi possível sincronizar.",
+  };
+  $("nvCard").hidden = !i.configurada; // sem ID do cliente OAuth, a seção nem aparece
+  $("nvTxt").textContent = i.configurada ? textos[i.estado] : "A sincronização com o Google Drive ainda não foi configurada.";
+  $("nvTxt").style.color = i.estado === "erro" ? "var(--warn)" : "";
+  $("nvConectar").hidden = !i.configurada || i.estado !== "desligada";
+  $("nvAgora").hidden = $("nvSair").hidden = !i.configurada || i.estado === "desligada";
+  $("nvAgora").disabled = i.estado === "sincronizando";
+  $("nvBar").hidden = !(i.configurada && (i.estado === "reconectar" || (i.estado === "erro" && i.ultima)));
+  $("nvBar").textContent = i.estado === "erro" ? "Sincronização com erro — toque para tentar de novo" : "Sincronização pausada — toque para continuar";
+}
+nuvem = criarNuvem({
+  clientId: GOOGLE_CLIENT_ID,
+  obterDoc: () => documento(st),
+  aplicarDoc: (doc) => {
+    aplicando = true;
+    try { aplicar(st, doc); normalizar(); carregarCampos(); drawHist(); drawResumo(); drawRolos(); drawClientes(); }
+    finally { aplicando = false; }
+  },
+  aoMudar: drawNuvem,
+});
+$("nvConectar").onclick = () => nuvem.conectar();
+$("nvAgora").onclick = $("nvBar").onclick = () => nuvem.agora();
+$("nvSair").onclick = () => confirma($("nvSair"), () => { const b = $("nvSair"); delete b.dataset.c; b.textContent = "Desconectar"; nuvem.desconectar(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") nuvem.retomar(); });
+window.addEventListener("online", () => nuvem.retomar());
+
 // ---------- Início ----------
 drawCliSel(); drawFils(); render(); mostrar(location.hash.slice(1));
+nuvem.retomar();
 
 if ("serviceWorker" in navigator) {
   try { navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}

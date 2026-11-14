@@ -9,7 +9,10 @@ https://ligalab-design.github.io/calculadora-3d/
 - Cálculo de custo (filamento, energia, máquina, falhas, mão de obra) e preço de venda
 - Preço final editável e arredondamento comercial
 - Tabela de preço por quantidade
-- Histórico de peças
+- Pedidos com cliente e situação (orçado, aprovado, em produção, entregue, pago), com busca e filtros
+- Resumo de vendas por mês
+- Importação de peso e tempo do arquivo fatiado (.gcode ou .gcode.3mf do Bambu Studio)
+- Cadastro de clientes
 - Orçamento para cliente (texto para copiar ou abrir no WhatsApp)
 - Cadastro de filamentos com controle de estoque
 - Backup: exportar e importar todos os dados
@@ -21,8 +24,9 @@ Os dados ficam salvos só no aparelho (localStorage).
 - `index.html` — telas e estilo
 - `app.js` — liga a tela aos cálculos e aos dados
 - `calc.js` — cálculos (sem dependência de tela)
-- `dados.js` — filamentos, estoque, histórico, orçamento e backup (sem dependência de tela)
-- `tests/` — testes automatizados de `calc.js` e `dados.js`
+- `dados.js` — filamentos, estoque, clientes, pedidos, resumo de vendas, orçamento e backup (sem dependência de tela)
+- `importar.js` e `zip.js` — leitura de arquivos fatiados (.gcode e .3mf)
+- `tests/` — testes automatizados de `calc.js`, `dados.js`, `importar.js` e `zip.js`
 - `sw.js` — funcionamento offline
 - `manifest.webmanifest` e `icons/` — nome e ícone do app
 - `.github/workflows/deploy.yml` — roda os testes e publica no GitHub Pages
@@ -48,4 +52,4 @@ no GitHub Pages (Settings → Pages → Source: GitHub Actions).
 ## Atualizar o app
 
 Ao mudar qualquer arquivo, aumente o número em `CACHE` no `sw.js`
-(por exemplo, `ligalab-calc-v4`) para os aparelhos baixarem a versão nova.
+(por exemplo, `ligalab-calc-v5`) para os aparelhos baixarem a versão nova.

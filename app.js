@@ -1,20 +1,22 @@
-// Tela do app: liga os campos aos cálculos (calc.js) e aos dados (dados.js).
+// Tela do app: liga os campos aos cálculos (calc.js), aos dados (dados.js) e à importação (importar.js).
 import { num, calcular, tabelaQuantidade, precoLote } from "./calc.js";
 import {
-  PECA_KEYS, precoKg, novoRolo, baixarEstoque, faltaEstoque, estoqueBaixo,
-  entradaHistorico, textoOrcamento, montarBackup, lerBackup,
+  PECA_KEYS, STATUS, precoKg, novoRolo, baixarEstoque, faltaEstoque, estoqueBaixo, novoCliente,
+  entradaHistorico, valoresPedido, filtrarHistorico, resumoVendas, textoOrcamento, montarBackup, lerBackup,
 } from "./dados.js";
+import { lerGcode, ler3mf } from "./importar.js";
 
 const PRESETS = { PLA: 120, PETG: 130, ASA: 160, TPU: 170, Outro: 150 };
 const DEF = {
   h: "2", m: "30", qtd: "1", falha: "5", extra: "0", mo: "10", vh: "30", lucro: "50", taxa: "0", arred: "nenhum",
   w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", v: 2,
-  fils: [{ rolo: "", mat: "PLA", g: "80", kg: "120" }], rolos: [], hist: [],
-  orc: { cliente: "", qtd: "", prazo: "5", validade: "7", obs: "" },
+  cli: "", cliNovo: "", pedStatus: "orcado",
+  fils: [{ rolo: "", mat: "PLA", g: "80", kg: "120" }], rolos: [], hist: [], clientes: [],
+  orc: { qtd: "", prazo: "5", validade: "7", obs: "" },
 };
-const IDS = ["h", "m", "qtd", "falha", "extra", "mo", "vh", "lucro", "taxa", "arred", "w", "kwh", "pimp", "vida", "manut", "precoFinal", "nomePeca"];
-const ORC = { orcCliente: "cliente", orcQtd: "qtd", orcPrazo: "prazo", orcValidade: "validade", orcObs: "obs" };
-const TABS = ["calcular", "historico", "filamentos", "dados"];
+const IDS = ["h", "m", "qtd", "falha", "extra", "mo", "vh", "lucro", "taxa", "arred", "w", "kwh", "pimp", "vida", "manut", "precoFinal", "nomePeca", "cliNovo", "pedStatus"];
+const ORC = { orcQtd: "qtd", orcPrazo: "prazo", orcValidade: "validade", orcObs: "obs" };
+const TABS = ["calcular", "historico", "resumo", "filamentos", "dados"];
 const KEY = "ligalab-calc3d-v1";
 
 const $ = (id) => document.getElementById(id);
@@ -25,7 +27,10 @@ const campo = (n) => String(Math.round(n * 100) / 100).replace(".", ",");
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const tempo = (horas) => { const min = Math.round(horas * 60); return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}min`; };
-const dia = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString("pt-BR"); };
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const diaBr = (e) => { const [a, m, d] = String(e.dia || e.data || "").slice(0, 10).split("-"); return d ? `${d}/${m}/${a}` : ""; };
+const mesBr = (mes) => { const [a, m] = mes.split("-"); return new Date(+a, +m - 1, 1).toLocaleDateString("pt-BR", { month: "short", year: "numeric" }); };
+const opcoes = (pares, sel) => pares.map(([v, t]) => `<option value="${esc(v)}"${v === sel ? " selected" : ""}>${esc(t)}</option>`).join("");
 
 // ---------- Estado ----------
 let saved = {};
@@ -37,10 +42,11 @@ normalizar();
 
 function normalizar() {
   if (!Array.isArray(st.fils) || !st.fils.length) st.fils = clone(DEF.fils);
-  if (!Array.isArray(st.rolos)) st.rolos = [];
-  if (!Array.isArray(st.hist)) st.hist = [];
+  for (const k of ["rolos", "hist", "clientes"]) if (!Array.isArray(st[k])) st[k] = [];
   st.orc = Object.assign(clone(DEF.orc), st.orc && typeof st.orc === "object" ? st.orc : {});
   st.fils.forEach((f) => { if (!f.rolo || !st.rolos.some((r) => r.id === f.rolo)) f.rolo = ""; });
+  if (st.cli !== "novo" && !st.clientes.some((c) => c.id === st.cli)) st.cli = "";
+  if (!STATUS.some(([s]) => s === st.pedStatus)) st.pedStatus = "orcado";
 }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
 
@@ -60,6 +66,7 @@ async function copiar(txt, btn) {
   try { await navigator.clipboard.writeText(txt); aviso(btn, "Copiado ✓"); }
   catch (e) { aviso(btn, "Não foi possível copiar"); }
 }
+const msg = (el, txt, ok = true) => { el.hidden = false; el.textContent = txt; el.style.color = ok ? "" : "var(--warn)"; };
 
 // ---------- Abas ----------
 function mostrar(tab) {
@@ -67,7 +74,9 @@ function mostrar(tab) {
   document.querySelectorAll("[data-view]").forEach((v) => { v.hidden = v.dataset.view !== tab; });
   document.querySelectorAll("nav [data-tab]").forEach((b) => { if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
   if (tab === "historico") drawHist();
+  if (tab === "resumo") drawResumo();
   if (tab === "filamentos") drawRolos();
+  if (tab === "dados") drawClientes();
 }
 document.querySelector("nav").addEventListener("click", (e) => {
   const b = e.target.closest("[data-tab]"); if (!b) return;
@@ -111,8 +120,33 @@ $("fils").addEventListener("click", (e) => {
 });
 $("addFil").onclick = () => { st.fils.push({ rolo: "", mat: "PLA", g: "", kg: String(PRESETS.PLA) }); drawFils(); render(); };
 
+$("pedStatus").innerHTML = opcoes(STATUS, st.pedStatus);
 IDS.forEach((id) => { $(id).value = st[id] ?? ""; $(id).addEventListener("input", () => { st[id] = $(id).value; render(); }); });
 Object.entries(ORC).forEach(([id, k]) => { $(id).value = st.orc[k] ?? ""; $(id).addEventListener("input", () => { st.orc[k] = $(id).value; drawOrc(); save(); }); });
+
+// ---------- Calcular: importar do fatiador ----------
+$("impFile").addEventListener("change", async () => {
+  const file = $("impFile").files[0]; if (!file) return;
+  let r;
+  try {
+    if (/\.3mf$/i.test(file.name)) r = await ler3mf(await file.arrayBuffer());
+    else {
+      // O resumo fica no começo e no fim do .gcode; não é preciso ler o arquivo inteiro.
+      const pedaco = 400000;
+      const txt = file.size <= pedaco * 2 ? await file.text() : (await file.slice(0, pedaco).text()) + "\n" + (await file.slice(file.size - pedaco).text());
+      r = lerGcode(txt);
+      if (!r.ok) r.erro = "Não encontrei peso nem tempo neste arquivo. Use o .gcode ou o .gcode.3mf exportado pelo fatiador.";
+    }
+  } catch (e) { r = { ok: false, erro: "Não foi possível ler o arquivo." }; }
+  $("impFile").value = "";
+  if (!r.ok) { msg($("impMsg"), r.erro, false); return; }
+  if (r.segundos) { const min = Math.round(r.segundos / 60); st.h = String(Math.floor(min / 60)); st.m = String(min % 60); }
+  if (r.fils.length) st.fils = r.fils.map((f) => ({ rolo: "", mat: f.mat, g: campo(f.g), kg: String(PRESETS[f.mat]) }));
+  if (!st.nomePeca) st.nomePeca = file.name.replace(/(\.gcode)?\.(3mf|gcode|bgcode)$/i, "");
+  carregarCampos();
+  const peso = r.fils.reduce((t, f) => t + f.g, 0);
+  msg($("impMsg"), `Importado de ${file.name}: ${[peso ? dec(peso) + " g" : "", r.segundos ? tempo(r.segundos / 3600) : ""].filter(Boolean).join(" e ")}. ${r.aviso || ""}${r.fils.length ? " Confira o preço por kg ou escolha o rolo." : " O arquivo não informa o peso; preencha à mão."}`);
+});
 
 // ---------- Calcular: resultado ----------
 let last = {};
@@ -140,12 +174,20 @@ function render() {
   $("tq").innerHTML = `<tr><th>Qtd.</th><th>Por peça</th><th>Total</th><th>Desc.</th></tr>` +
     tabelaQuantidade(st).map((l) => `<tr><td>${l.n}</td><td>${brl(l.preco)}</td><td>${brl(l.total)}</td><td>${l.desconto > 0.05 ? "−" + dec(l.desconto, 0) + "%" : "—"}</td></tr>`).join("");
 
-  const falta = faltaEstoque(st.rolos, st.fils);
-  $("faltaTxt").hidden = !falta.length;
-  $("faltaTxt").textContent = falta.map((f) => `${f.nome}: a peça pede ${dec(f.precisa, 0)} g e restam ${dec(f.resto, 0)} g.`).join(" ");
-  $("baixarBox").hidden = !st.fils.some((f) => f.rolo);
+  // Pedido: quantidade, preço e custo por peça para essa quantidade.
+  const pecas = Math.max(1, Math.round(num(st.orc.qtd)) || r.qtd);
+  const lote = precoLote(st, pecas);
+  const ped = { pecas, preco: manual ? r.precoFinal : lote.preco, un: lote.un, fator: pecas / r.qtd };
+  $("orcQtd").placeholder = String(r.qtd);
 
-  last = { parts, r, manual };
+  const usoPedido = st.fils.map((f) => ({ rolo: f.rolo, g: num(f.g) * ped.fator }));
+  const falta = faltaEstoque(st.rolos, usoPedido);
+  $("faltaTxt").hidden = !falta.length;
+  $("faltaTxt").textContent = falta.map((f) => `${f.nome}: o pedido usa ${dec(f.precisa, 0)} g e restam ${dec(f.resto, 0)} g.`).join(" ");
+  $("baixarBox").hidden = !st.fils.some((f) => f.rolo);
+  $("cliNovoBox").hidden = st.cli !== "novo";
+
+  last = { parts, r, manual, ped };
   drawOrc();
   save();
 }
@@ -159,54 +201,119 @@ $("copy").onclick = () => {
 };
 $("reset").onclick = () => {
   ["h", "m", "extra", "mo"].forEach((id) => { st[id] = "0"; });
-  st.qtd = "1"; st.precoFinal = ""; st.nomePeca = "";
+  st.qtd = "1"; st.precoFinal = ""; st.nomePeca = ""; st.orc.qtd = ""; st.pedStatus = "orcado";
   st.fils = [{ rolo: "", mat: "PLA", g: "", kg: String(PRESETS.PLA) }];
+  $("impMsg").hidden = true;
   carregarCampos();
 };
 function carregarCampos() {
   IDS.forEach((id) => { $(id).value = st[id] ?? ""; });
-  drawFils(); render();
+  Object.entries(ORC).forEach(([id, k]) => { $(id).value = st.orc[k] ?? ""; });
+  drawCliSel(); drawFils(); render();
 }
 
-// ---------- Orçamento ----------
+// ---------- Cliente do pedido e orçamento ----------
+function drawCliSel() {
+  $("cliSel").innerHTML = opcoes([["", "Sem cliente"], ...st.clientes.map((c) => [c.id, c.nome]), ["novo", "+ Novo cliente…"]], st.cli);
+}
+$("cliSel").addEventListener("input", () => { st.cli = $("cliSel").value; render(); if (st.cli === "novo") $("cliNovo").focus(); });
+const nomeCliente = () => (st.cli === "novo" ? st.cliNovo.trim() : (st.clientes.find((c) => c.id === st.cli) || {}).nome || "");
+
 function drawOrc() {
-  const { r, manual } = last; if (!r) return;
-  const qtd = Math.max(1, Math.round(num(st.orc.qtd)) || r.qtd);
-  $("orcQtd").placeholder = String(r.qtd);
-  const unit = manual ? r.precoFinal : precoLote(st, qtd).preco;
-  const txt = textoOrcamento({ cliente: st.orc.cliente, peca: st.nomePeca, qtd, unit, prazo: st.orc.prazo, validade: st.orc.validade, obs: st.orc.obs });
+  const { ped } = last; if (!ped) return;
+  const txt = textoOrcamento({ cliente: nomeCliente(), peca: st.nomePeca, qtd: ped.pecas, unit: ped.preco, prazo: st.orc.prazo, validade: st.orc.validade, obs: st.orc.obs });
   $("orcTxt").value = txt;
   $("orcWa").href = "https://wa.me/?text=" + encodeURIComponent(txt);
 }
 $("abrirOrc").onclick = () => { const b = $("orcBox"); b.hidden = !b.hidden; if (!b.hidden) { drawOrc(); b.scrollIntoView({ block: "nearest", behavior: "smooth" }); } };
 $("orcCopy").onclick = () => copiar($("orcTxt").value, $("orcCopy"));
 
-// ---------- Histórico ----------
+// ---------- Pedidos (histórico) ----------
 $("salvar").onclick = () => {
-  const { r } = last;
-  st.hist.unshift(entradaHistorico(st, r, { id: uid(), data: new Date().toISOString(), nome: st.nomePeca }));
+  const { r, ped } = last;
+  if (st.cli === "novo") {
+    if (st.cliNovo.trim()) { const c = novoCliente({ nome: st.cliNovo }, uid()); st.clientes.push(c); st.cli = c.id; }
+    else st.cli = "";
+    st.cliNovo = ""; $("cliNovo").value = ""; drawCliSel();
+  }
+  const agora = new Date();
+  st.hist.unshift(entradaHistorico(st, r, {
+    id: uid(), data: agora.toISOString(), dia: ymd(agora), nome: st.nomePeca,
+    cliente: st.cli, clienteNome: nomeCliente(), status: st.pedStatus, vendidas: ped.pecas, preco: ped.preco, un: ped.un,
+  }));
   const baixou = !$("baixarBox").hidden && $("baixar").checked;
-  if (baixou) { st.rolos = baixarEstoque(st.rolos, st.fils); drawFils(); }
+  if (baixou) { st.rolos = baixarEstoque(st.rolos, st.fils, ped.fator); drawFils(); }
   render();
   aviso($("salvar"), baixou ? "Salvo e estoque atualizado ✓" : "Salvo ✓");
 };
-function drawHist() {
-  $("histTit").textContent = st.hist.length ? `Peças salvas (${st.hist.length})` : "Peças salvas";
-  $("histList").innerHTML = st.hist.length ? st.hist.map((e) => `<div class="item">
-    <div class="ihead"><b>${esc(e.nome)}</b><span>${brl(num(e.preco))}</span></div>
-    <div class="sub">${dia(e.data)} · ${esc(e.qtd)} peça(s) · ${dec(num(e.peso))} g · ${tempo(num(e.horas))} · custo ${brl(num(e.un))} por peça</div>
-    <div class="acts"><button type="button" data-abrir="${esc(e.id)}">Reabrir na calculadora</button><button type="button" data-excluir="${esc(e.id)}">Excluir</button></div>
-  </div>`).join("") : `<p class="hint" style="margin:0">Nenhuma peça salva ainda. Na aba Calcular, dê um nome à peça e toque em “Salvar no histórico”.</p>`;
+
+const filtro = { texto: "", status: "", periodo: "", cliente: "" };
+function periodo(p) {
+  const h = new Date(), a = h.getFullYear(), m = h.getMonth();
+  if (p === "mes") return { de: ymd(new Date(a, m, 1)), ate: ymd(new Date(a, m + 1, 0)) };
+  if (p === "anterior") return { de: ymd(new Date(a, m - 1, 1)), ate: ymd(new Date(a, m, 0)) };
+  if (p === "ano") return { de: `${a}-01-01`, ate: `${a}-12-31` };
+  return {};
 }
+$("fStatus").innerHTML = opcoes([["", "Todas"], ...STATUS], "");
+$("fPeriodo").innerHTML = opcoes([["", "Tudo"], ["mes", "Este mês"], ["anterior", "Mês passado"], ["ano", "Este ano"]], "");
+[["fTexto", "texto"], ["fStatus", "status"], ["fPeriodo", "periodo"], ["fCliente", "cliente"]].forEach(([id, k]) => {
+  $(id).addEventListener("input", () => { filtro[k] = $(id).value; drawHistList(); });
+});
+function drawHist() {
+  if (filtro.cliente && !st.clientes.some((c) => c.id === filtro.cliente)) filtro.cliente = "";
+  $("fCliente").innerHTML = opcoes([["", "Todos"], ...st.clientes.map((c) => [c.id, c.nome])], filtro.cliente);
+  drawHistList();
+}
+function drawHistList() {
+  const lista = filtrarHistorico(st.hist, { texto: filtro.texto, status: filtro.status, cliente: filtro.cliente, ...periodo(filtro.periodo) });
+  const soma = lista.reduce((t, e) => t + valoresPedido(e).receita, 0);
+  $("histTit").textContent = `Pedidos (${st.hist.length})`;
+  $("histSoma").textContent = st.hist.length ? `${lista.length === st.hist.length ? "Todos os" : `${lista.length} de`} ${st.hist.length} pedido(s) · ${brl(soma)} no total` : "";
+  $("histList").innerHTML = lista.length ? lista.map((e) => {
+    const v = valoresPedido(e);
+    return `<div class="item">
+    <div class="ihead"><b>${esc(e.nome)}</b><span>${brl(v.receita)}</span></div>
+    <div class="sub">${e.clienteNome ? esc(e.clienteNome) + " · " : ""}${diaBr(e)} · ${v.pecas} peça(s) × ${brl(num(e.preco))} · lucro ${brl(v.lucro)}</div>
+    <div class="sub">${dec(v.filamento)} g de filamento · ${tempo(num(e.horas))} por mesa · custo ${brl(num(e.un))} por peça</div>
+    <div class="rrow"><div><label>Situação</label><select data-status="${esc(e.id)}">${opcoes(STATUS, e.status || "orcado")}</select></div>
+    <button type="button" data-abrir="${esc(e.id)}">Reabrir</button></div>
+    <div class="acts"><button type="button" data-excluir="${esc(e.id)}">Excluir pedido</button></div>
+  </div>`;
+  }).join("") : `<p class="hint" style="margin:0">${st.hist.length ? "Nenhum pedido corresponde aos filtros." : "Nenhum pedido salvo ainda. Na aba Calcular, dê um nome à peça e toque em “Salvar pedido”."}</p>`;
+}
+$("histList").addEventListener("change", (e) => {
+  const id = e.target.dataset.status; if (id === undefined) return;
+  const it = st.hist.find((h) => h.id === id); if (!it) return;
+  it.status = e.target.value; save(); drawHistList();
+});
 $("histList").addEventListener("click", (e) => {
   const a = e.target.closest("[data-abrir]"), x = e.target.closest("[data-excluir]");
   if (a) {
     const it = st.hist.find((h) => h.id === a.dataset.abrir); if (!it || !it.snap) return;
     PECA_KEYS.forEach((k) => { if (it.snap[k] !== undefined) st[k] = clone(it.snap[k]); });
+    st.cli = it.cliente || ""; st.pedStatus = it.status || "orcado"; st.orc.qtd = it.vendidas ? String(it.vendidas) : "";
     normalizar(); carregarCampos(); mostrar("calcular"); location.hash = "calcular"; window.scrollTo(0, 0);
   }
-  if (x) confirma(x, () => { st.hist = st.hist.filter((h) => h.id !== x.dataset.excluir); save(); drawHist(); });
+  if (x) confirma(x, () => { st.hist = st.hist.filter((h) => h.id !== x.dataset.excluir); save(); drawHistList(); });
 });
+
+// ---------- Resumo de vendas ----------
+function drawResumo() {
+  const { meses, total } = resumoVendas(st.hist);
+  const atual = meses.find((m) => m.mes === ymd(new Date()).slice(0, 7)) || { pedidos: 0, pecas: 0, receita: 0, lucro: 0, filamento: 0 };
+  $("rsVendido").textContent = brl(atual.receita);
+  $("rsSub").textContent = `${atual.pedidos} pedido(s) · ${atual.pecas} peça(s)`;
+  $("rsLucro").textContent = brl(atual.lucro);
+  $("rsFil").textContent = dec(atual.filamento, 0) + " g";
+  $("rsReceber").textContent = brl(total.aReceber);
+  $("rsTotal").textContent = brl(total.receita);
+  $("rsTab").innerHTML = meses.length
+    ? `<tr><th>Mês</th><th>Pedidos</th><th>Vendido</th><th>Lucro</th></tr>` +
+      meses.map((m) => `<tr><td>${esc(mesBr(m.mes))}</td><td>${m.pedidos}</td><td>${brl(m.receita)}</td><td>${brl(m.lucro)}</td></tr>`).join("") +
+      `<tr class="tot"><td>Total</td><td>${total.pedidos}</td><td>${brl(total.receita)}</td><td>${brl(total.lucro)}</td></tr>`
+    : `<tr><td style="border:0">Nenhuma venda ainda. Um pedido entra no resumo quando a situação passa de “Orçado” para “Aprovado” em diante.</td></tr>`;
+}
 
 // ---------- Filamentos ----------
 $("rMat").innerHTML = Object.keys(PRESETS).map((p) => `<option>${p}</option>`).join("");
@@ -239,11 +346,35 @@ $("roloList").addEventListener("click", (e) => {
   confirma(b, () => { st.rolos = st.rolos.filter((r) => r.id !== b.dataset.rdel); normalizar(); save(); drawRolos(); drawFils(); render(); });
 });
 
+// ---------- Clientes ----------
+$("cAdd").onclick = () => {
+  if (!$("cNome").value.trim()) { aviso($("cAdd"), "Informe o nome"); return; }
+  st.clientes.push(novoCliente({ nome: $("cNome").value, contato: $("cContato").value }, uid()));
+  $("cNome").value = ""; $("cContato").value = "";
+  save(); drawClientes(); drawCliSel();
+  aviso($("cAdd"), "Cadastrado ✓");
+};
+function drawClientes() {
+  $("cliList").innerHTML = st.clientes.length ? st.clientes.map((c) => {
+    const peds = st.hist.filter((h) => h.cliente === c.id), tot = peds.reduce((t, e) => t + valoresPedido(e).receita, 0);
+    return `<div class="item">
+    <div class="ihead"><b>${esc(c.nome)}</b><span>${brl(tot)}</span></div>
+    <div class="sub">${c.contato ? esc(c.contato) + " · " : ""}${peds.length} pedido(s)</div>
+    <div class="acts"><button type="button" data-cver="${esc(c.id)}">Ver pedidos</button><button type="button" data-cdel="${esc(c.id)}">Excluir</button></div>
+  </div>`;
+  }).join("") : `<p class="hint" style="margin:0">Nenhum cliente cadastrado. Você também pode criar o cliente na hora de salvar um pedido.</p>`;
+}
+$("cliList").addEventListener("click", (e) => {
+  const v = e.target.closest("[data-cver]"), x = e.target.closest("[data-cdel]");
+  if (v) { Object.assign(filtro, { texto: "", status: "", periodo: "", cliente: v.dataset.cver }); ["fTexto", "fStatus", "fPeriodo"].forEach((id) => { $(id).value = ""; }); mostrar("historico"); location.hash = "historico"; window.scrollTo(0, 0); }
+  // Excluir o cliente mantém os pedidos dele, com o nome que tinham.
+  if (x) confirma(x, () => { st.clientes = st.clientes.filter((c) => c.id !== x.dataset.cdel); st.hist.forEach((h) => { if (h.cliente === x.dataset.cdel) h.cliente = ""; }); normalizar(); save(); drawClientes(); drawCliSel(); render(); });
+});
+
 // ---------- Backup ----------
-const msg = (el, txt, ok = true) => { el.hidden = false; el.textContent = txt; el.style.color = ok ? "" : "var(--warn)"; };
 const backupTxt = () => JSON.stringify(montarBackup(st, new Date().toISOString()), null, 2);
 $("bExport").onclick = async () => {
-  const nome = `ligalab-calculadora-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  const nome = `ligalab-calculadora-backup-${ymd(new Date())}.json`;
   try {
     const file = new File([backupTxt()], nome, { type: "application/json" });
     // No celular, a folha de compartilhamento permite "Salvar em Arquivos"; no computador, baixa direto.
@@ -268,14 +399,13 @@ $("bImport").onclick = () => confirma($("bImport"), async () => {
   Object.keys(st).forEach((k) => delete st[k]);
   Object.assign(st, clone(DEF), res.dados); st.v = 2;
   normalizar(); save();
-  Object.entries(ORC).forEach(([id, k]) => { $(id).value = st.orc[k] ?? ""; });
-  carregarCampos(); drawHist(); drawRolos();
+  carregarCampos(); drawClientes();
   $("bFile").value = ""; b.disabled = true;
-  msg($("iMsg"), `Backup importado: ${st.hist.length} peça(s) no histórico e ${st.rolos.length} rolo(s).`);
+  msg($("iMsg"), `Backup importado: ${st.hist.length} pedido(s), ${st.clientes.length} cliente(s) e ${st.rolos.length} rolo(s).`);
 });
 
 // ---------- Início ----------
-drawFils(); render(); mostrar(location.hash.slice(1));
+drawCliSel(); drawFils(); render(); mostrar(location.hash.slice(1));
 
 if ("serviceWorker" in navigator) {
   try { navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}

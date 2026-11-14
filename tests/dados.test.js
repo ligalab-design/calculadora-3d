@@ -170,3 +170,139 @@ test("backup: recusa dados incompletos", () => {
   assert.equal(lerBackup(JSON.stringify({ app: "ligalab-calc3d", dados: { fils: [], hist: "x" } })).ok, false);
   assert.equal(lerBackup(JSON.stringify({ app: "ligalab-calc3d" })).ok, false);
 });
+
+// ---------- Clientes e pedidos ----------
+import { STATUS, VENDIDO, novoCliente, valoresPedido, filtrarHistorico, resumoVendas } from "../dados.js";
+
+test("novoCliente: limpa espaços e usa nome padrão", () => {
+  assert.deepEqual(novoCliente({ nome: " Ana ", contato: " 61 99999-0000 " }, "c1"), { id: "c1", nome: "Ana", contato: "61 99999-0000" });
+  assert.equal(novoCliente({}, "c2").nome, "Cliente sem nome");
+});
+
+test("STATUS: fluxo completo, e orçado não conta como venda", () => {
+  assert.deepEqual(STATUS.map(([s]) => s), ["orcado", "aprovado", "producao", "entregue", "pago"]);
+  assert.equal(VENDIDO.includes("orcado"), false);
+  assert.equal(VENDIDO.length, 4);
+});
+
+test("baixarEstoque: fator multiplica o consumo do pedido", () => {
+  assert.equal(baixarEstoque(rolos, [{ rolo: "a", g: "40" }], 5)[0].resto, 100);
+  assert.equal(baixarEstoque(rolos, [{ rolo: "a", g: "40" }], 0)[0].resto, 260);
+});
+
+test("entradaHistorico: guarda cliente, situação, quantidade do pedido e valores por peça", () => {
+  const e = entradaHistorico(st, calcular(st), {
+    id: "p1", data: "2026-11-15T01:30:00.000Z", dia: "2026-11-14", nome: "Vaso",
+    cliente: "c1", clienteNome: "Ana", status: "aprovado", vendidas: "10", preco: 8, un: 5.5,
+  });
+  assert.equal(e.dia, "2026-11-14");
+  assert.equal(e.cliente, "c1");
+  assert.equal(e.clienteNome, "Ana");
+  assert.equal(e.status, "aprovado");
+  assert.equal(e.vendidas, 10);
+  assert.equal(e.preco, 8);
+  assert.equal(e.un, 5.5);
+  assert.equal(e.taxa, 0);
+});
+
+test("entradaHistorico: padrões — orçado, quantidade da mesa, dia tirado da data", () => {
+  const e = entradaHistorico(st, calcular(st), { id: "p2", data: "2026-11-14T12:00:00.000Z", nome: "Vaso", status: "inventado" });
+  assert.equal(e.status, "orcado");
+  assert.equal(e.vendidas, 2);
+  assert.equal(e.dia, "2026-11-14");
+  assert.equal(e.cliente, "");
+});
+
+const ped = (o) => ({ id: "x", nome: "Peça", dia: "2026-11-10", status: "pago", qtd: 1, vendidas: 1, peso: 100, un: 10, taxa: 0, preco: 15, cliente: "", clienteNome: "", ...o });
+
+test("valoresPedido: receita, lucro e filamento pela quantidade do pedido", () => {
+  const v = valoresPedido(ped({ qtd: 2, vendidas: 10, peso: 100, un: 6, preco: 9 }));
+  assert.equal(v.pecas, 10);
+  perto(v.receita, 90);
+  perto(v.lucro, 30);
+  perto(v.filamento, 500);
+});
+
+test("valoresPedido: desconta a taxa de venda do lucro", () => {
+  perto(valoresPedido(ped({ preco: 20, un: 12, taxa: 0.1 })).lucro, 6);
+});
+
+test("valoresPedido: registro antigo (sem vendidas, taxa nem situação) usa a quantidade da mesa", () => {
+  const v = valoresPedido({ qtd: 2, peso: 100, un: 6, preco: 9 });
+  assert.equal(v.pecas, 2);
+  perto(v.receita, 18);
+  perto(v.lucro, 6);
+  perto(v.filamento, 100);
+});
+
+const hist = [
+  ped({ id: "1", nome: "Vaso geométrico", clienteNome: "Ana", cliente: "c1", dia: "2026-11-10", status: "pago", preco: 30, un: 20 }),
+  ped({ id: "2", nome: "Suporte de fone", clienteNome: "João", cliente: "c2", dia: "2026-11-02", status: "entregue", preco: 50, un: 30, vendidas: 2 }),
+  ped({ id: "3", nome: "Chaveiro", clienteNome: "Ana", cliente: "c1", dia: "2026-10-20", status: "orcado", preco: 10, un: 4, vendidas: 50 }),
+  ped({ id: "4", nome: "Organizador", clienteNome: "", cliente: "", dia: "2026-10-05", status: "producao", preco: 40, un: 25 }),
+];
+const ids = (l) => l.map((e) => e.id).join("");
+
+test("filtrarHistorico: sem filtros devolve tudo", () => {
+  assert.equal(ids(filtrarHistorico(hist)), "1234");
+  assert.equal(ids(filtrarHistorico(hist, {})), "1234");
+  assert.deepEqual(filtrarHistorico(undefined), []);
+});
+
+test("filtrarHistorico: texto busca na peça e no cliente, sem diferenciar acentos e maiúsculas", () => {
+  assert.equal(ids(filtrarHistorico(hist, { texto: "geometrico" })), "1");
+  assert.equal(ids(filtrarHistorico(hist, { texto: "JOAO" })), "2");
+  assert.equal(ids(filtrarHistorico(hist, { texto: " ana " })), "13");
+  assert.equal(ids(filtrarHistorico(hist, { texto: "inexistente" })), "");
+});
+
+test("filtrarHistorico: por situação, cliente e período (inclusive nas pontas)", () => {
+  assert.equal(ids(filtrarHistorico(hist, { status: "orcado" })), "3");
+  assert.equal(ids(filtrarHistorico(hist, { cliente: "c1" })), "13");
+  assert.equal(ids(filtrarHistorico(hist, { de: "2026-11-01", ate: "2026-11-30" })), "12");
+  assert.equal(ids(filtrarHistorico(hist, { de: "2026-10-20" })), "123");
+  assert.equal(ids(filtrarHistorico(hist, { ate: "2026-10-20" })), "34");
+});
+
+test("filtrarHistorico: filtros combinados", () => {
+  assert.equal(ids(filtrarHistorico(hist, { cliente: "c1", status: "pago", texto: "vaso" })), "1");
+  assert.equal(ids(filtrarHistorico(hist, { cliente: "c1", status: "entregue" })), "");
+});
+
+test("filtrarHistorico: registro antigo sem situação conta como orçado e usa a data ISO", () => {
+  const antigo = [{ id: "9", nome: "Antiga", data: "2026-09-03T15:00:00.000Z" }];
+  assert.equal(ids(filtrarHistorico(antigo, { status: "orcado" })), "9");
+  assert.equal(ids(filtrarHistorico(antigo, { de: "2026-09-01", ate: "2026-09-30" })), "9");
+  assert.equal(ids(filtrarHistorico(antigo, { status: "pago" })), "");
+});
+
+test("resumoVendas: soma por mês, mais recente primeiro, sem contar orçados", () => {
+  const r = resumoVendas(hist);
+  assert.deepEqual(r.meses.map((m) => m.mes), ["2026-11", "2026-10"]);
+  const nov = r.meses[0], out = r.meses[1];
+  assert.equal(nov.pedidos, 2);
+  assert.equal(nov.pecas, 3);
+  perto(nov.receita, 130);
+  perto(nov.lucro, 50);
+  perto(nov.filamento, 300);
+  perto(nov.aReceber, 100);
+  assert.equal(out.pedidos, 1);
+  perto(out.receita, 40);
+  perto(out.aReceber, 40);
+});
+
+test("resumoVendas: total geral e a receber", () => {
+  const { total } = resumoVendas(hist);
+  assert.equal(total.pedidos, 3);
+  assert.equal(total.pecas, 4);
+  perto(total.receita, 170);
+  perto(total.lucro, 65);
+  perto(total.aReceber, 140);
+});
+
+test("resumoVendas: sem vendas devolve zeros", () => {
+  const r = resumoVendas([]);
+  assert.deepEqual(r.meses, []);
+  assert.deepEqual(r.total, { pedidos: 0, pecas: 0, receita: 0, lucro: 0, filamento: 0, aReceber: 0 });
+  assert.deepEqual(resumoVendas([ped({ status: "orcado" })]).meses, []);
+});

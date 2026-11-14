@@ -28,10 +28,14 @@ function usoPorRolo(fils) {
   return uso;
 }
 
-/** Devolve uma nova lista de rolos com o peso da impressão descontado (nunca abaixo de zero). */
-export function baixarEstoque(rolos, fils) {
+/**
+ * Devolve uma nova lista de rolos com o peso da impressão descontado (nunca abaixo de zero).
+ * `fator` multiplica o consumo: pedido de 10 peças com 2 por mesa = fator 5.
+ */
+export function baixarEstoque(rolos, fils, fator = 1) {
   const uso = usoPorRolo(fils);
-  return (rolos || []).map((r) => (uso[r.id] ? { ...r, resto: Math.max(0, num(r.resto) - uso[r.id]) } : { ...r }));
+  const f = fator > 0 ? fator : 1;
+  return (rolos || []).map((r) => (uso[r.id] ? { ...r, resto: Math.max(0, num(r.resto) - uso[r.id] * f) } : { ...r }));
 }
 
 /** Rolos que não têm filamento suficiente para a impressão. */
@@ -47,22 +51,92 @@ export function estoqueBaixo(rolo) {
   return num(rolo.resto) < num(rolo.peso) * 0.15;
 }
 
-// ---------- Histórico ----------
+// ---------- Clientes ----------
 
-/** Monta o registro de uma peça calculada. `r` é o resultado de calcular(st). */
-export function entradaHistorico(st, r, { id, data, nome }) {
+export function novoCliente({ nome, contato }, id) {
+  return { id, nome: String(nome || "").trim() || "Cliente sem nome", contato: String(contato || "").trim() };
+}
+
+// ---------- Pedidos (histórico) ----------
+
+/** Situações de um pedido, na ordem do fluxo. */
+export const STATUS = [["orcado", "Orçado"], ["aprovado", "Aprovado"], ["producao", "Em produção"], ["entregue", "Entregue"], ["pago", "Pago"]];
+/** Situações que contam como venda (orçamento ainda não aprovado não conta). */
+export const VENDIDO = ["aprovado", "producao", "entregue", "pago"];
+
+const diaDe = (e) => String(e.dia || e.data || "").slice(0, 10);
+const semAcento = (t) => String(t ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Números de um pedido: peças, receita, lucro e filamento gasto (g). Aceita registros antigos. */
+export function valoresPedido(e) {
+  const qtdMesa = Math.max(1, Math.round(num(e.qtd)) || 1);
+  const pecas = Math.max(1, Math.round(num(e.vendidas)) || qtdMesa);
+  const preco = num(e.preco), taxa = Math.min(num(e.taxa), 0.95);
+  return {
+    pecas,
+    receita: preco * pecas,
+    lucro: (preco * (1 - taxa) - num(e.un)) * pecas,
+    filamento: (num(e.peso) / qtdMesa) * pecas,
+  };
+}
+
+/**
+ * Filtra pedidos. Todos os filtros são opcionais:
+ * texto (nome da peça ou do cliente, sem diferenciar acentos), status, cliente (id),
+ * de / ate (datas "AAAA-MM-DD", inclusive).
+ */
+export function filtrarHistorico(hist, { texto, status, cliente, de, ate } = {}) {
+  const t = semAcento(texto).trim();
+  return (hist || []).filter((e) => {
+    if (t && !semAcento(e.nome).includes(t) && !semAcento(e.clienteNome).includes(t)) return false;
+    if (status && (e.status || "orcado") !== status) return false;
+    if (cliente && e.cliente !== cliente) return false;
+    const d = diaDe(e);
+    if (de && d < de) return false;
+    if (ate && d > ate) return false;
+    return true;
+  });
+}
+
+/** Resumo de vendas por mês (mais recente primeiro) e no total. Só conta pedidos aprovados em diante. */
+export function resumoVendas(hist) {
+  const zero = () => ({ pedidos: 0, pecas: 0, receita: 0, lucro: 0, filamento: 0, aReceber: 0 });
+  const meses = {}, total = zero();
+  for (const e of hist || []) {
+    if (!VENDIDO.includes(e.status)) continue;
+    const v = valoresPedido(e), mes = diaDe(e).slice(0, 7);
+    for (const alvo of [meses[mes] || (meses[mes] = { mes, ...zero() }), total]) {
+      alvo.pedidos += 1; alvo.pecas += v.pecas; alvo.receita += v.receita; alvo.lucro += v.lucro; alvo.filamento += v.filamento;
+      if (e.status !== "pago") alvo.aReceber += v.receita;
+    }
+  }
+  return { meses: Object.values(meses).sort((a, b) => (a.mes < b.mes ? 1 : -1)), total };
+}
+
+
+/**
+ * Monta o registro de um pedido. `r` é o resultado de calcular(st).
+ * `vendidas` é a quantidade do pedido; `preco` e `un` são por peça e, se omitidos, vêm de `r`.
+ */
+export function entradaHistorico(st, r, { id, data, dia, nome, cliente, clienteNome, status, vendidas, preco, un }) {
   const snap = {};
   for (const k of PECA_KEYS) if (st[k] !== undefined) snap[k] = copia(st[k]);
   return {
     id,
     data,
+    dia: dia || String(data || "").slice(0, 10),
     nome: String(nome || "").trim() || "Peça sem nome",
+    cliente: cliente || "",
+    clienteNome: String(clienteNome || "").trim(),
+    status: STATUS.some(([s]) => s === status) ? status : "orcado",
     qtd: r.qtd,
+    vendidas: Math.max(1, Math.round(num(vendidas)) || r.qtd),
     peso: r.peso,
     horas: r.horas,
-    un: r.un,
+    un: un ?? r.un,
     total: r.total,
-    preco: r.precoFinal,
+    taxa: r.taxa,
+    preco: preco ?? r.precoFinal,
     snap,
   };
 }
@@ -104,6 +178,6 @@ export function lerBackup(texto) {
   if (!obj || typeof obj !== "object" || obj.app !== APP_ID) return { ok: false, erro: "Este arquivo não é um backup da calculadora Liga Lab." };
   const d = obj.dados;
   if (!d || typeof d !== "object" || !Array.isArray(d.fils)) return { ok: false, erro: "O backup está incompleto ou corrompido." };
-  for (const k of ["rolos", "hist"]) if (d[k] !== undefined && !Array.isArray(d[k])) return { ok: false, erro: "O backup está incompleto ou corrompido." };
+  for (const k of ["rolos", "hist", "clientes"]) if (d[k] !== undefined && !Array.isArray(d[k])) return { ok: false, erro: "O backup está incompleto ou corrompido." };
   return { ok: true, dados: d };
 }

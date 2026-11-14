@@ -40,8 +40,8 @@ header{display:flex;align-items:center;gap:14px;margin-bottom:16px}
 header img{width:54px;height:54px;border-radius:13px;background:var(--tile);flex:none}
 .brand{font-weight:700;font-size:1.3rem;letter-spacing:.06em;line-height:1.1}
 .tag{font-size:.66rem;letter-spacing:.3em;color:var(--mut);margin-top:5px;font-weight:500}
-nav{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:4px;margin-bottom:16px;position:sticky;top:calc(6px + env(safe-area-inset-top));z-index:5}
-nav button{border:0;min-height:42px;padding:0 4px;font-size:.74rem;font-weight:600;letter-spacing:.02em;color:var(--mut);border-radius:10px}
+nav{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:4px;margin-bottom:16px;position:sticky;top:calc(6px + env(safe-area-inset-top));z-index:5}
+nav button{border:0;min-height:42px;padding:0 2px;font-size:.72rem;font-weight:600;letter-spacing:.02em;color:var(--mut);border-radius:10px}
 nav button[aria-current="page"]{background:var(--hero);color:var(--hero-ink)}
 .grid{display:grid;gap:14px}
 @media(min-width:820px){.grid{grid-template-columns:1.25fr 1fr;align-items:start}}
@@ -122,9 +122,10 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
 
 <nav aria-label="Seções">
   <button type="button" data-tab="calcular">Calcular</button>
-  <button type="button" data-tab="historico">Histórico</button>
-  <button type="button" data-tab="filamentos">Filamentos</button>
-  <button type="button" data-tab="dados">Backup</button>
+  <button type="button" data-tab="historico">Pedidos</button>
+  <button type="button" data-tab="resumo">Resumo</button>
+  <button type="button" data-tab="filamentos">Rolos</button>
+  <button type="button" data-tab="dados">Mais</button>
 </nav>
 
 <!-- ============ CALCULAR ============ -->
@@ -134,8 +135,11 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     <summary>Filamento</summary>
     <div id="fils"></div>
     <button class="add" id="addFil" type="button">+ Adicionar filamento</button>
+    <label class="btn add" for="impFile" style="margin-top:8px">Importar do fatiador (.3mf ou .gcode)</label>
+    <input type="file" id="impFile" hidden>
+    <p class="msg" id="impMsg" hidden></p>
     <p class="warn" id="faltaTxt" hidden></p>
-    <p class="hint">Use o peso total do fatiador — ele já inclui suportes e a purga do AMS. Cadastre seus rolos na aba Filamentos para escolhê-los aqui.</p>
+    <p class="hint">Use o peso total do fatiador — ele já inclui suportes e a purga do AMS. A importação preenche peso e tempo a partir do arquivo fatiado. Cadastre seus rolos na aba Rolos para escolhê-los aqui.</p>
   </details></section>
 
   <section class="card"><details open>
@@ -223,20 +227,23 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
   </details></section>
 
   <section class="card"><details open>
-    <summary>Salvar e orçar</summary>
+    <summary>Pedido e orçamento</summary>
     <label for="nomePeca">Nome da peça</label>
     <input id="nomePeca" placeholder="Ex.: Vaso geométrico" autocomplete="off">
+    <div class="row" style="margin-top:10px">
+      <div><label for="cliSel">Cliente</label><select id="cliSel"></select></div>
+      <div><label for="orcQtd">Quantidade do pedido</label><div class="fld"><input id="orcQtd" inputmode="numeric"><span class="u">un</span></div></div>
+    </div>
+    <div id="cliNovoBox" style="margin-bottom:10px" hidden><label for="cliNovo">Nome do novo cliente</label><input id="cliNovo" autocomplete="off"></div>
+    <label for="pedStatus">Situação</label>
+    <select id="pedStatus"></select>
     <label class="chk" id="baixarBox" hidden><input type="checkbox" id="baixar" checked> Descontar o filamento do estoque ao salvar</label>
     <div class="acts">
-      <button class="pri" id="salvar" type="button">Salvar no histórico</button>
+      <button class="pri" id="salvar" type="button">Salvar pedido</button>
       <button id="abrirOrc" type="button">Orçamento para cliente</button>
     </div>
     <div id="orcBox" hidden>
       <div class="row" style="margin-top:14px">
-        <div><label for="orcCliente">Cliente</label><input id="orcCliente" autocomplete="off"></div>
-        <div><label for="orcQtd">Quantidade</label><div class="fld"><input id="orcQtd" inputmode="numeric"><span class="u">un</span></div></div>
-      </div>
-      <div class="row">
         <div><label for="orcPrazo">Prazo de produção</label><div class="fld"><input id="orcPrazo" inputmode="numeric"><span class="u">dias</span></div></div>
         <div><label for="orcValidade">Validade</label><div class="fld"><input id="orcValidade" inputmode="numeric"><span class="u">dias</span></div></div>
       </div>
@@ -263,8 +270,41 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
 <!-- ============ HISTÓRICO ============ -->
 <div data-view="historico" hidden>
   <section class="card">
-    <p class="h" id="histTit">Peças salvas</p>
+    <p class="h" id="histTit">Pedidos</p>
+    <input id="fTexto" type="search" placeholder="Buscar por peça ou cliente" autocomplete="off">
+    <div class="row three" style="margin:10px 0 0">
+      <div><label for="fStatus">Situação</label><select id="fStatus"></select></div>
+      <div><label for="fPeriodo">Período</label><select id="fPeriodo"></select></div>
+      <div><label for="fCliente">Cliente</label><select id="fCliente"></select></div>
+    </div>
+    <p class="sub" id="histSoma" style="margin-top:10px"></p>
+  </section>
+  <section class="card">
     <div id="histList"></div>
+  </section>
+</div>
+
+<!-- ============ RESUMO ============ -->
+<div data-view="resumo" hidden>
+  <section class="card">
+    <p class="h">Este mês</p>
+    <div class="price">
+      <div class="lbl">Vendido</div>
+      <i></i>
+      <div class="big" id="rsVendido">—</div>
+      <div class="sub" id="rsSub"></div>
+    </div>
+    <div class="kv" style="margin-top:0">
+      <div><b id="rsLucro">—</b><span>lucro no mês</span></div>
+      <div><b id="rsFil">—</b><span>filamento gasto no mês</span></div>
+      <div><b id="rsReceber">—</b><span>a receber (todos os meses)</span></div>
+      <div><b id="rsTotal">—</b><span>vendido desde o início</span></div>
+    </div>
+  </section>
+  <section class="card">
+    <p class="h">Por mês</p>
+    <table id="rsTab"></table>
+    <p class="hint">Entram os pedidos aprovados, em produção, entregues e pagos; orçamentos ainda não aprovados ficam de fora. “A receber” soma os que ainda não estão como pagos.</p>
   </section>
 </div>
 
@@ -288,16 +328,25 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
         <div><label for="rPreco">Preço pago</label><div class="fld"><input id="rPreco" inputmode="decimal"><span class="u">R$</span></div></div>
       </div>
       <button class="pri" id="rAdd" type="button" style="width:100%">Cadastrar</button>
-      <p class="hint">O preço por kg é calculado pelo que você pagou. Ao salvar uma peça no histórico, o peso usado é descontado do rolo.</p>
+      <p class="hint">O preço por kg é calculado pelo que você pagou. Ao salvar um pedido, o peso usado é descontado do rolo.</p>
     </section>
   </div>
 </div>
 
-<!-- ============ BACKUP ============ -->
+<!-- ============ MAIS: CLIENTES E BACKUP ============ -->
 <div data-view="dados" hidden>
   <section class="card">
-    <p class="h">Exportar</p>
-    <p class="sub" style="margin:0 0 12px">Guarda histórico, filamentos e ajustes em um arquivo. Os dados ficam só neste aparelho, então exporte de vez em quando e antes de trocar de celular.</p>
+    <p class="h">Clientes</p>
+    <div id="cliList"></div>
+    <div class="row" style="margin-top:14px">
+      <div><label for="cNome">Nome</label><input id="cNome" autocomplete="off"></div>
+      <div><label for="cContato">Contato (opcional)</label><input id="cContato" autocomplete="off" placeholder="Telefone ou e-mail"></div>
+    </div>
+    <button class="pri" id="cAdd" type="button" style="width:100%">Cadastrar cliente</button>
+  </section>
+  <section class="card">
+    <p class="h">Backup — exportar</p>
+    <p class="sub" style="margin:0 0 12px">Guarda pedidos, clientes, rolos e ajustes em um arquivo. Os dados ficam só neste aparelho, então exporte de vez em quando e antes de trocar de celular.</p>
     <div class="acts" style="margin-top:0">
       <button class="pri" id="bExport" type="button">Exportar arquivo</button>
       <button id="bCopy" type="button">Copiar como texto</button>
@@ -305,7 +354,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     <p class="msg" id="bMsg" hidden></p>
   </section>
   <section class="card">
-    <p class="h">Importar</p>
+    <p class="h">Backup — importar</p>
     <p class="sub" style="margin:0 0 12px">Substitui todos os dados deste aparelho pelos do arquivo.</p>
     <input type="file" id="bFile" accept=".json,application/json">
     <div class="acts">

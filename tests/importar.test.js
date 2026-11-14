@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
-import { segundos, material, lerGcode, lerSliceInfo, ler3mf } from "../importar.js";
-import { listarZip, extrairTexto } from "../zip.js";
+import { segundos, material, corNome, coresUsadas, textoDimensoes, lerGcode, lerSliceInfo, lerPlacaJson, ler3mf } from "../importar.js";
+import { listarZip, extrairTexto, extrairInicio } from "../zip.js";
+
+const semCor = (fils) => fils.map(({ mat, g }) => ({ mat, g }));
 
 // ---------- Monta um ZIP de teste ----------
 function zip(arquivos) {
@@ -67,6 +69,7 @@ const BAMBU = `; HEADER_BLOCK_START
 ; HEADER_BLOCK_END
 
 ; CONFIG_BLOCK_START
+; filament_colour = #000000;#FFFFFF
 ; filament_type = PLA;PETG
 ; CONFIG_BLOCK_END
 G1 X10 Y10
@@ -76,26 +79,26 @@ test("lerGcode: Bambu Studio com dois filamentos", () => {
   const r = lerGcode(BAMBU);
   assert.equal(r.ok, true);
   assert.equal(r.segundos, 4640);
-  assert.deepEqual(r.fils, [{ mat: "PLA", g: 27.45 }, { mat: "PETG", g: 3.91 }]);
+  assert.deepEqual(semCor(r.fils), [{ mat: "PLA", g: 27.45 }, { mat: "PETG", g: 3.91 }]);
 });
 
 test("lerGcode: Bambu Studio antigo, só com tempo", () => {
   const r = lerGcode("; BambuStudio 01.08\n; model printing time: 13m 9s; total estimated time: 19m 6s\n; total layer number: 50\n");
   assert.equal(r.ok, true);
   assert.equal(r.segundos, 1146);
-  assert.deepEqual(r.fils, []);
+  assert.deepEqual(semCor(r.fils), []);
 });
 
 test("lerGcode: PrusaSlicer / OrcaSlicer (resumo no fim do arquivo)", () => {
   const r = lerGcode("G1 X1\n; filament used [mm] = 4321.0\n; filament used [g] = 12.89\n; total filament used [g] = 12.89\n; estimated printing time (normal mode) = 2h 5m 10s\n; filament_type = PETG\n");
   assert.equal(r.ok, true);
   assert.equal(r.segundos, 7510);
-  assert.deepEqual(r.fils, [{ mat: "PETG", g: 12.89 }]);
+  assert.deepEqual(semCor(r.fils), [{ mat: "PETG", g: 12.89 }]);
 });
 
 test("lerGcode: filamento com peso zero é ignorado", () => {
   const r = lerGcode("; total estimated time: 10m 0s\n; total filament weight [g] : 5.00,0.00,2.50\n; filament_type = PLA;PLA;TPU\n");
-  assert.deepEqual(r.fils, [{ mat: "PLA", g: 5 }, { mat: "TPU", g: 2.5 }]);
+  assert.deepEqual(semCor(r.fils), [{ mat: "PLA", g: 5 }, { mat: "TPU", g: 2.5 }]);
 });
 
 test("lerGcode: arquivo sem resumo não é aceito", () => {
@@ -121,12 +124,12 @@ test("lerSliceInfo: tempo em segundos e peso por filamento", () => {
   const r = lerSliceInfo(SLICE);
   assert.equal(r.ok, true);
   assert.equal(r.placas.length, 1);
-  assert.deepEqual(r.placas[0], { indice: 1, ok: true, segundos: 5437, fils: [{ mat: "PLA", g: 27.45 }, { mat: "PETG", g: 3.91 }] });
+  assert.deepEqual(r.placas[0], { indice: 1, ok: true, segundos: 5437, fils: [{ mat: "PLA", g: 27.45, cor: "#000000" }, { mat: "PETG", g: 3.91, cor: "#FFFFFF" }] });
 });
 
 test("lerSliceInfo: sem lista de filamentos usa o peso da placa", () => {
   const r = lerSliceInfo('<config><plate><metadata key="index" value="2"/><metadata key="prediction" value="600"/><metadata key="weight" value="8.50"/></plate></config>');
-  assert.deepEqual(r.placas[0].fils, [{ mat: "Outro", g: 8.5 }]);
+  assert.deepEqual(semCor(r.placas[0].fils), [{ mat: "Outro", g: 8.5 }]);
   assert.equal(r.placas[0].indice, 2);
 });
 
@@ -154,7 +157,7 @@ test("ler3mf: arquivo fatiado do Bambu Studio", async () => {
   const r = await ler3mf(zip([["3D/3dmodel.model", "<model/>"], ["Metadata/slice_info.config", SLICE], ["Metadata/plate_1.gcode", BAMBU]]));
   assert.equal(r.ok, true);
   assert.equal(r.segundos, 5437);
-  assert.deepEqual(r.fils, [{ mat: "PLA", g: 27.45 }, { mat: "PETG", g: 3.91 }]);
+  assert.deepEqual(semCor(r.fils), [{ mat: "PLA", g: 27.45 }, { mat: "PETG", g: 3.91 }]);
   assert.equal(r.aviso, "");
 });
 
@@ -181,4 +184,89 @@ test("ler3mf: arquivo que não é ZIP", async () => {
   const r = await ler3mf(new TextEncoder().encode("G28 ; isto é um gcode renomeado, não um 3mf de verdade").buffer);
   assert.equal(r.ok, false);
   assert.match(r.erro, /corrompido/);
+});
+
+// ---------- Cores e dimensões ----------
+
+test("corNome: cores básicas", () => {
+  const casos = { "#000000": "Preto", "#FFFFFF": "Branco", "#898989": "Cinza", "#FF0000": "Vermelho", "#8B0000": "Vermelho", "#FF6A13": "Laranja",
+    "#F4EE2A": "Amarelo", "#00AE42": "Verde", "#0A2989": "Azul", "#5E43B7": "Roxo", "#F55A74": "Rosa", "#9D432C": "Marrom", "#F7E6DE": "Bege", "#00B1B7": "Turquesa" };
+  for (const [hex, nome] of Object.entries(casos)) assert.equal(corNome(hex), nome, hex);
+});
+
+test("corNome: aceita transparência, minúsculas e sem #; texto inválido vira vazio", () => {
+  assert.equal(corNome("#00ae42ff"), "Verde");
+  assert.equal(corNome("0A2989"), "Azul");
+  assert.equal(corNome(""), "");
+  assert.equal(corNome("verde"), "");
+  assert.equal(corNome(undefined), "");
+});
+
+test("coresUsadas: sem repetir e ignorando filamento sem cor", () => {
+  assert.deepEqual(coresUsadas([{ cor: "#000000" }, { cor: "#111111" }, { cor: "" }, { cor: "#FFFFFF" }]), ["Preto", "Branco"]);
+  assert.deepEqual(coresUsadas([]), []);
+  assert.deepEqual(coresUsadas(undefined), []);
+});
+
+test("textoDimensoes: largura × profundidade × altura em mm", () => {
+  assert.equal(textoDimensoes({ x: 120.4, y: 80.2, z: 45 }), "120 × 80 × 45 mm");
+  assert.equal(textoDimensoes({ x: 12.34, y: 8.06, z: 4.5 }), "12,3 × 8,1 × 4,5 mm");
+  assert.equal(textoDimensoes({ x: 120, y: 80, z: 0 }), "120 × 80 mm");
+  assert.equal(textoDimensoes(null), "");
+  assert.equal(textoDimensoes({ x: 0, y: 80, z: 10 }), "");
+});
+
+test("lerGcode: cores na ordem dos filamentos e altura da peça", () => {
+  const r = lerGcode(BAMBU);
+  assert.deepEqual(r.fils.map((f) => f.cor), ["#000000", "#FFFFFF"]);
+  assert.equal(r.altura, 24);
+  assert.equal(lerGcode("; total estimated time: 1m 0s\n").altura, 0);
+});
+
+test("lerGcode: cor acompanha o filamento mesmo quando outro tem peso zero", () => {
+  const r = lerGcode("; total estimated time: 10m 0s\n; total filament weight [g] : 0.00,2.50\n; filament_colour = #FF0000;#0A2989\n; filament_type = PLA;PLA\n");
+  assert.deepEqual(r.fils, [{ mat: "PLA", g: 2.5, cor: "#0A2989" }]);
+});
+
+const PLACA = JSON.stringify({ bbox_all: [60, 70, 196.5, 150.2], bbox_objects: [
+  { area: 100, bbox: [60, 70, 180.4, 150.2], id: 1, layer_height: 0.2, name: "Vaso.stl" },
+  { area: 10, bbox: [185, 70, 196.5, 80], id: 2, layer_height: 0.2, name: "Tampa.stl" },
+  { area: 5, bbox: [10, 10, 70, 70], id: 3, name: "wipe_tower" },
+], filament_colors: ["#000000", "#FFFFFF"], version: 2 });
+
+test("lerPlacaJson: medidas dos objetos, sem a torre de limpeza", () => {
+  const { objetos } = lerPlacaJson(PLACA);
+  assert.equal(objetos.length, 2);
+  assert.equal(objetos[0].nome, "Vaso.stl");
+  assert.ok(Math.abs(objetos[0].x - 120.4) < 1e-9 && Math.abs(objetos[0].y - 80.2) < 1e-9);
+});
+
+test("lerPlacaJson: texto inválido ou sem objetos devolve lista vazia", () => {
+  assert.deepEqual(lerPlacaJson("lixo"), { objetos: [] });
+  assert.deepEqual(lerPlacaJson("{}"), { objetos: [] });
+  assert.deepEqual(lerPlacaJson(JSON.stringify({ bbox_objects: [{ name: "x", bbox: [1, 2] }] })), { objetos: [] });
+});
+
+test("zip: extrairInicio lê só o começo de uma entrada grande", async () => {
+  const grande = BAMBU + "G1 X10 Y10 E0.5\n".repeat(200000);
+  const z = zip([["Metadata/plate_1.gcode", grande], ["a.txt", "curto", true]]);
+  const [g, a] = listarZip(z);
+  const inicio = await extrairInicio(z, g, 4096);
+  assert.equal(inicio.length, 4096);
+  assert.equal(inicio, grande.slice(0, 4096));
+  assert.equal(await extrairInicio(z, a, 4096), "curto");
+});
+
+test("ler3mf: traz cores e as dimensões do maior objeto, com a altura do gcode", async () => {
+  const r = await ler3mf(zip([["Metadata/slice_info.config", SLICE], ["Metadata/plate_1.json", PLACA], ["Metadata/plate_1.gcode", BAMBU + "G1 X1\n".repeat(50000)]]));
+  assert.equal(r.ok, true);
+  assert.deepEqual(coresUsadas(r.fils), ["Preto", "Branco"]);
+  assert.equal(r.objetos, 2);
+  assert.equal(textoDimensoes(r.dims), "120 × 80 × 24 mm");
+});
+
+test("ler3mf: sem plate_N.json não inventa dimensões", async () => {
+  const r = await ler3mf(zip([["Metadata/slice_info.config", SLICE]]));
+  assert.equal(r.dims, null);
+  assert.equal(r.objetos, 0);
 });

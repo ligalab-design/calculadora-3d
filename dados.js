@@ -2,7 +2,7 @@
 import { num } from "./calc.js";
 
 /** Campos que descrevem uma peça; são os guardados no histórico e restaurados ao reabrir. */
-export const PECA_KEYS = ["fils", "h", "m", "qtd", "falha", "extra", "mo", "lucro", "taxa", "arred", "precoFinal", "nomePeca"];
+export const PECA_KEYS = ["fils", "h", "m", "qtd", "falha", "extra", "mo", "lucro", "taxa", "arred", "precoFinal", "nomePeca", "dims", "cores"];
 
 const copia = (o) => JSON.parse(JSON.stringify(o));
 const brl = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/ /g, " ");
@@ -162,10 +162,13 @@ export function atualizarPeca(snap, { lucro, precos, rolos }) {
 // ---------- Orçamento ----------
 
 /** Texto de orçamento para enviar ao cliente. Não expõe custos, só preço. */
-export function textoOrcamento({ cliente, peca, qtd, unit, prazo, validade, obs }) {
+export function textoOrcamento({ cliente, peca, dims, cores, qtd, unit, prazo, validade, obs }) {
   const n = Math.max(1, Math.round(num(qtd)) || 1);
   const linhas = ["*LIGA LAB. — Design & Objetos*", cliente && String(cliente).trim() ? `Orçamento para ${String(cliente).trim()}` : "Orçamento", ""];
   linhas.push(`Peça: ${String(peca || "").trim() || "Impressão 3D"}`);
+  const d = String(dims || "").trim(), c = String(cores || "").trim();
+  if (d) linhas.push(`Dimensões: ${d}`);
+  if (c) linhas.push(`${/,| e /.test(c) ? "Cores" : "Cor"}: ${c}`);
   linhas.push(`Quantidade: ${n}`);
   if (n > 1) linhas.push(`Valor unitário: ${brl(unit)}`);
   linhas.push(`Total: ${brl(unit * n)}`);

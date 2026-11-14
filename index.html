@@ -141,7 +141,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     <input type="file" id="impFile" hidden>
     <p class="msg" id="impMsg" hidden></p>
     <p class="warn" id="faltaTxt" hidden></p>
-    <p class="hint">Use o peso total do fatiador — ele já inclui suportes e a purga do AMS. A importação preenche peso e tempo a partir do arquivo fatiado. Cadastre seus rolos na aba Rolos para escolhê-los aqui.</p>
+    <p class="hint">Use o peso total do fatiador — ele já inclui suportes e a purga do AMS. A importação preenche peso e tempo a partir do arquivo fatiado e já monta o orçamento com dimensões e cores, quando o arquivo traz (.gcode.3mf do Bambu Studio). Cadastre seus rolos na aba Rolos para escolhê-los aqui.</p>
   </details></section>
 
   <section class="card"><details open>
@@ -253,6 +253,10 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     <label for="nomePeca">Nome da peça</label>
     <input id="nomePeca" placeholder="Ex.: Vaso geométrico" autocomplete="off">
     <div class="row" style="margin-top:10px">
+      <div><label for="dims">Dimensões</label><input id="dims" placeholder="Ex.: 120 × 80 × 45 mm" autocomplete="off"></div>
+      <div><label for="cores">Cores</label><input id="cores" placeholder="Ex.: Preto, Branco" autocomplete="off"></div>
+    </div>
+    <div class="row">
       <div><label for="cliSel">Cliente</label><select id="cliSel"></select></div>
       <div><label for="orcQtd">Quantidade do pedido</label><div class="fld"><input id="orcQtd" inputmode="numeric"><span class="u">un</span></div></div>
     </div>

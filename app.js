@@ -4,7 +4,7 @@ import {
   PECA_KEYS, STATUS, precoKg, novoRolo, baixarEstoque, faltaEstoque, estoqueBaixo, novoCliente, atualizarPeca,
   entradaHistorico, valoresPedido, filtrarHistorico, resumoVendas, textoOrcamento, montarBackup, lerBackup,
 } from "./dados.js";
-import { lerGcode, ler3mf } from "./importar.js";
+import { lerGcode, ler3mf, coresUsadas, textoDimensoes } from "./importar.js";
 import { CFG_KEYS, documento, aplicar } from "./sync.js";
 import { criarNuvem } from "./nuvem.js";
 import { GOOGLE_CLIENT_ID } from "./config.js";
@@ -12,14 +12,14 @@ import { GOOGLE_CLIENT_ID } from "./config.js";
 const PRESETS = { PLA: 130, PETG: 130, ASA: 160, TPU: 170, Outro: 150 };
 const DEF = {
   h: "2", m: "30", qtd: "1", falha: "5", extra: "0", mo: "30", vh: "30", lucro: "100", taxa: "0", arred: "nenhum",
-  w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", v: 3,
+  w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", dims: "", cores: "", v: 3,
   cli: "", cliNovo: "", pedStatus: "orcado", editando: "", cfgMod: 0, apagados: {},
   // Padrões aplicados a cada novo pedido (e ao duplicar). Editáveis na aba Calcular.
   padrao: { lucro: "100", mo: "30", precos: { PLA: "130", PETG: "130", ASA: "160", TPU: "170", Outro: "150" } },
   fils: [{ rolo: "", mat: "PLA", g: "80", kg: "130" }], rolos: [], hist: [], clientes: [],
   orc: { qtd: "", prazo: "5", validade: "7", obs: "" },
 };
-const IDS = ["h", "m", "qtd", "falha", "extra", "mo", "vh", "lucro", "taxa", "arred", "w", "kwh", "pimp", "vida", "manut", "precoFinal", "nomePeca", "cliNovo", "pedStatus"];
+const IDS = ["h", "m", "qtd", "falha", "extra", "mo", "vh", "lucro", "taxa", "arred", "w", "kwh", "pimp", "vida", "manut", "precoFinal", "nomePeca", "dims", "cores", "cliNovo", "pedStatus"];
 const ORC = { orcQtd: "qtd", orcPrazo: "prazo", orcValidade: "validade", orcObs: "obs" };
 const TABS = ["calcular", "historico", "resumo", "filamentos", "dados"];
 const KEY = "ligalab-calc3d-v1";
@@ -167,10 +167,20 @@ $("impFile").addEventListener("change", async () => {
   if (!r.ok) { msg($("impMsg"), r.erro, false); return; }
   if (r.segundos) { const min = Math.round(r.segundos / 60); st.h = String(Math.floor(min / 60)); st.m = String(min % 60); }
   if (r.fils.length) st.fils = r.fils.map((f) => ({ rolo: "", mat: f.mat, g: campo(f.g), kg: precoPadrao(f.mat) }));
-  if (!st.nomePeca) st.nomePeca = file.name.replace(/(\.gcode)?\.(3mf|gcode|bgcode)$/i, "");
+  // Fora da edição de um pedido salvo, a importação começa uma peça: nome, dimensões e cores vêm do arquivo.
+  if (!st.editando || !st.nomePeca) st.nomePeca = file.name.replace(/(\.gcode)?\.(3mf|gcode|bgcode)$/i, "");
+  const dims = textoDimensoes(r.dims), cores = coresUsadas(r.fils).join(", ");
+  st.dims = dims; st.cores = cores;
   carregarCampos();
+  // O orçamento já fica montado e aberto com os dados do arquivo.
+  $("orcBox").hidden = false; drawOrc();
   const peso = r.fils.reduce((t, f) => t + f.g, 0);
-  msg($("impMsg"), `Importado de ${file.name}: ${[peso ? dec(peso) + " g" : "", r.segundos ? tempo(r.segundos / 3600) : ""].filter(Boolean).join(" e ")}. ${r.aviso || ""}${r.fils.length ? " Confira o preço por kg ou escolha o rolo." : " O arquivo não informa o peso; preencha à mão."}`);
+  const orc = dims && cores ? " Dimensões e cores foram para o orçamento; confira, porque a cor é estimada pela tonalidade."
+    : cores ? " As cores foram para o orçamento (estimadas pela tonalidade); este arquivo não traz as dimensões, preencha à mão."
+    : dims ? " As dimensões foram para o orçamento; preencha as cores à mão."
+    : " Este arquivo não traz dimensões nem cores; preencha no orçamento.";
+  const varios = r.objetos > 1 ? ` Há ${r.objetos} objetos na placa; usei as medidas do maior.` : "";
+  msg($("impMsg"), `Importado de ${file.name}: ${[peso ? dec(peso) + " g" : "", r.segundos ? tempo(r.segundos / 3600) : ""].filter(Boolean).join(" e ")}. ${r.aviso || ""}${r.fils.length ? " Confira o preço por kg ou escolha o rolo." : " O arquivo não informa o peso; preencha à mão."}${orc}${varios}`);
 });
 
 // ---------- Calcular: resultado ----------
@@ -233,7 +243,7 @@ $("copy").onclick = () => {
 $("reset").onclick = () => {
   ["h", "m", "extra"].forEach((id) => { st[id] = "0"; });
   st.mo = st.padrao.mo; st.lucro = st.padrao.lucro;
-  st.qtd = "1"; st.precoFinal = ""; st.nomePeca = ""; st.orc.qtd = ""; st.pedStatus = "orcado"; st.cli = ""; st.editando = "";
+  st.qtd = "1"; st.precoFinal = ""; st.nomePeca = ""; st.dims = ""; st.cores = ""; st.orc.qtd = ""; st.pedStatus = "orcado"; st.cli = ""; st.editando = "";
   st.fils = [{ rolo: "", mat: "PLA", g: "", kg: precoPadrao("PLA") }];
   $("impMsg").hidden = true; $("salvarMsg").hidden = true;
   carregarCampos();
@@ -261,7 +271,7 @@ const nomeCliente = () => (st.cli === "novo" ? st.cliNovo.trim() : (st.clientes.
 
 function drawOrc() {
   const { ped } = last; if (!ped) return;
-  const txt = textoOrcamento({ cliente: nomeCliente(), peca: st.nomePeca, qtd: ped.pecas, unit: ped.preco, prazo: st.orc.prazo, validade: st.orc.validade, obs: st.orc.obs });
+  const txt = textoOrcamento({ cliente: nomeCliente(), peca: st.nomePeca, dims: st.dims, cores: st.cores, qtd: ped.pecas, unit: ped.preco, prazo: st.orc.prazo, validade: st.orc.validade, obs: st.orc.obs });
   $("orcTxt").value = txt;
   $("orcWa").href = "https://wa.me/?text=" + encodeURIComponent(txt);
 }

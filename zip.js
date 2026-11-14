@@ -37,3 +37,28 @@ export async function extrairTexto(buffer, entrada) {
   const fluxo = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   return new Response(fluxo).text();
 }
+
+/**
+ * Extrai só o começo de uma entrada (até `maxBytes` já descomprimidos), sem abrir o arquivo inteiro.
+ * Útil para ler o cabeçalho de um .gcode grande dentro de um .3mf.
+ */
+export async function extrairInicio(buffer, entrada, maxBytes = 65536) {
+  const dv = new DataView(buffer), p = entrada.local;
+  if (dv.getUint32(p, true) !== 0x04034b50) throw new Error("ZIP corrompido");
+  const inicio = p + 30 + dv.getUint16(p + 26, true) + dv.getUint16(p + 28, true);
+  const bytes = new Uint8Array(buffer, inicio, entrada.tamanho);
+  if (entrada.metodo === 0) return new TextDecoder().decode(bytes.subarray(0, maxBytes));
+  if (entrada.metodo !== 8) throw new Error("compressão não suportada");
+  // Alimenta o descompressor aos poucos e para assim que houver texto suficiente.
+  const ds = new DecompressionStream("deflate-raw"), w = ds.writable.getWriter(), r = ds.readable.getReader();
+  const partes = []; let total = 0, pos = 0, fim = false;
+  const alimentar = (async () => {
+    try { while (pos < bytes.length && !fim) { await w.write(bytes.subarray(pos, pos + 65536)); pos += 65536; } if (!fim) await w.close(); } catch (e) {}
+  })();
+  try {
+    while (total < maxBytes) { const { value, done } = await r.read(); if (done) break; partes.push(value); total += value.length; }
+  } finally { fim = true; r.cancel().catch(() => {}); w.abort().catch(() => {}); await alimentar; }
+  const junto = new Uint8Array(total); let o = 0;
+  for (const parte of partes) { junto.set(parte, o); o += parte.length; }
+  return new TextDecoder().decode(junto.subarray(0, maxBytes));
+}

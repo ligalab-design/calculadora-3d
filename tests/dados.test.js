@@ -72,7 +72,7 @@ test("estoqueBaixo: abaixo de 15% do rolo", () => {
 const st = {
   fils: [{ rolo: "a", mat: "PLA", g: "100", kg: "120" }],
   h: "2", m: "0", qtd: "2", falha: "0", extra: "0", mo: "0", vh: "0", lucro: "50", taxa: "0",
-  arred: "nenhum", precoFinal: "", nomePeca: "Vaso",
+  arred: "nenhum", precoFinal: "", nomePeca: "Vaso", dims: "120 × 80 × 45 mm", cores: "Preto",
   w: "0", kwh: "0", pimp: "0", vida: "0", manut: "0",
   rolos, hist: [],
 };
@@ -351,4 +351,22 @@ test("atualizarPeca: não altera o pedido original e o preço sugerido reflete o
   perto(antes.preco, (9.9 + 2.2 + 0.75) * 1.5);
   perto(depois.preco, (13 + 2.6 + 0.85) * 2);
   perto(depois.precoFinal, depois.preco);
+});
+
+test("textoOrcamento: inclui dimensões e cores logo depois da peça", () => {
+  const t = textoOrcamento({ cliente: "Ana", peca: "Vaso", dims: "120 × 80 × 45 mm", cores: "Preto, Branco", qtd: 1, unit: 30, prazo: "5", validade: "7", obs: "" });
+  assert.match(t, /Peça: Vaso\nDimensões: 120 × 80 × 45 mm\nCores: Preto, Branco\nQuantidade: 1/);
+});
+
+test("textoOrcamento: uma cor só usa o singular; campos vazios não aparecem", () => {
+  assert.match(textoOrcamento({ peca: "Vaso", cores: " Preto ", qtd: 1, unit: 30 }), /\nCor: Preto\n/);
+  assert.match(textoOrcamento({ peca: "Vaso", cores: "Preto e Branco", qtd: 1, unit: 30 }), /\nCores: Preto e Branco\n/);
+  const t = textoOrcamento({ peca: "Vaso", dims: "  ", cores: "", qtd: 1, unit: 30 });
+  assert.doesNotMatch(t, /Dimens|Cor/);
+});
+
+test("entradaHistorico: guarda dimensões e cores para reabrir o pedido", () => {
+  const e = entradaHistorico(st, calcular(st), { id: "d1", data: "x", nome: "Vaso" });
+  assert.equal(e.snap.dims, "120 × 80 × 45 mm");
+  assert.equal(e.snap.cores, "Preto");
 });

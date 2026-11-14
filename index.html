@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Liga Lab — Calculadora 3D</title>
+<meta name="description" content="Custo e preço de venda de impressões 3D">
+<meta name="theme-color" content="#f8f3ef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1916" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Liga Lab 3D">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f8f3ef;--card:#fffdfa;--ink:#2a2622;--mut:#7a7068;--line:#e6ddd3;--field:#f8f3ef;
+  --tan:#b08f66;--tan-ink:#86683f;--tile:#d2c9c0;
+  --hero:#2a2622;--hero-ink:#f8f3ef;--hero-mut:#c9bfb3;
+  --c1:#2a2622;--c2:#b08f66;--c3:#7d7368;--c4:#d6c3a6;--c5:#b3aaa0;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#1c1916;--card:#26221e;--ink:#f8f3ef;--mut:#a89e93;--line:#3a342e;--field:#1c1916;
+  --tan:#c4a47c;--tan-ink:#d3b68f;--tile:#d2c9c0;
+  --hero:#f8f3ef;--hero-ink:#2a2622;--hero-mut:#7a7068;
+  --c1:#f8f3ef;--c2:#c4a47c;--c3:#8f857a;--c4:#6e5b42;--c5:#5a534c;
+}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 Montserrat,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+main{max-width:980px;margin:0 auto;
+  padding:calc(18px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left))}
+header{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+header img{width:54px;height:54px;border-radius:13px;background:var(--tile);flex:none}
+.brand{font-weight:700;font-size:1.3rem;letter-spacing:.06em;line-height:1.1}
+.tag{font-size:.66rem;letter-spacing:.3em;color:var(--mut);margin-top:5px;font-weight:500}
+.rule{width:44px;height:2px;background:var(--tan);margin:0 0 18px}
+.grid{display:grid;gap:14px}
+@media(min-width:820px){.grid{grid-template-columns:1.25fr 1fr;align-items:start}.res{position:sticky;top:14px}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;min-height:30px;
+  font-size:.7rem;text-transform:uppercase;letter-spacing:.2em;color:var(--mut);font-weight:600}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-size:1.3rem;line-height:1;font-weight:400;letter-spacing:0;width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line);border-radius:9px;color:var(--ink)}
+details[open]>summary::after{content:"–"}
+details[open]>summary{margin-bottom:12px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.row.three{grid-template-columns:1fr 1fr 1fr}
+label{display:block;font-size:.74rem;color:var(--mut);margin-bottom:4px;font-weight:500}
+.fld{position:relative}
+input,select{width:100%;font:inherit;font-weight:500;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:46px;font-variant-numeric:tabular-nums;-webkit-appearance:none;appearance:none}
+input:focus,select:focus,button:focus-visible,summary:focus-visible{outline:2px solid var(--tan);outline-offset:1px}
+.fld .u{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:.72rem;color:var(--mut);pointer-events:none}
+.fld input{padding-right:48px}
+.fil{display:grid;grid-template-columns:1.1fr 1fr 1fr 44px;gap:8px;margin-bottom:8px;align-items:end}
+.fil label{font-size:.68rem}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);min-height:46px;padding:0 14px;font-weight:500}
+.del{padding:0;font-size:1.2rem;color:var(--mut)}
+.del:disabled{opacity:.3}
+.add{width:100%;border-style:dashed;color:var(--tan-ink);font-weight:600}
+.hint{font-size:.74rem;color:var(--mut);margin:8px 0 0}
+.big{font-size:2.3rem;font-weight:700;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+.sub{color:var(--mut);font-size:.82rem;margin-top:2px}
+.price{background:var(--hero);color:var(--hero-ink);border-radius:14px;padding:16px;margin-bottom:16px}
+.price .sub{color:var(--hero-mut)}
+.price .lbl{font-size:.66rem;letter-spacing:.2em;text-transform:uppercase;font-weight:600;color:var(--hero-mut)}
+.price i{display:block;width:32px;height:2px;background:var(--tan);margin:10px 0}
+.bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin:14px 0 10px}
+.bar i{display:block;height:100%}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+td{padding:8px 0;border-bottom:1px solid var(--line)}
+td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:500}
+tr.tot td{font-weight:700;border-bottom:0;padding-top:11px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.kv div{border:1px solid var(--line);border-radius:11px;padding:10px}
+.kv b{display:block;font-size:1.02rem;font-variant-numeric:tabular-nums;font-weight:600}
+.kv span{font-size:.7rem;color:var(--mut)}
+.acts{display:flex;gap:8px;margin-top:14px}
+.acts button{flex:1}
+.pri{background:var(--hero);color:var(--hero-ink);border-color:var(--hero);font-weight:600}
+footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;margin-top:22px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <img src="icons/icon-192.png" alt="Logo Liga Lab" width="54" height="54">
+  <div>
+    <div class="brand">LIGA LAB.</div>
+    <div class="tag">CALCULADORA 3D</div>
+  </div>
+</header>
+<div class="rule"></div>
+
+<div class="grid">
+<div>
+  <section class="card"><details open>
+    <summary>Filamento</summary>
+    <div id="fils"></div>
+    <button class="add" id="addFil" type="button">+ Adicionar filamento</button>
+    <p class="hint">Use o peso total do fatiador — ele já inclui suportes e a purga do AMS.</p>
+  </details></section>
+
+  <section class="card"><details open>
+    <summary>Impressão</summary>
+    <div class="row three">
+      <div><label for="h">Horas</label><div class="fld"><input id="h" inputmode="decimal"><span class="u">h</span></div></div>
+      <div><label for="m">Minutos</label><div class="fld"><input id="m" inputmode="decimal"><span class="u">min</span></div></div>
+      <div><label for="qtd">Peças</label><div class="fld"><input id="qtd" inputmode="numeric"><span class="u">un</span></div></div>
+    </div>
+    <div class="row">
+      <div><label for="falha">Taxa de falha</label><div class="fld"><input id="falha" inputmode="decimal"><span class="u">%</span></div></div>
+      <div><label for="extra">Extras (embalagem…)</label><div class="fld"><input id="extra" inputmode="decimal"><span class="u">R$</span></div></div>
+    </div>
+  </details></section>
+
+  <section class="card"><details open>
+    <summary>Mão de obra e venda</summary>
+    <div class="row">
+      <div><label for="mo">Seu tempo de trabalho</label><div class="fld"><input id="mo" inputmode="decimal"><span class="u">min</span></div></div>
+      <div><label for="vh">Valor da sua hora</label><div class="fld"><input id="vh" inputmode="decimal"><span class="u">R$/h</span></div></div>
+    </div>
+    <div class="row">
+      <div><label for="lucro">Margem de lucro</label><div class="fld"><input id="lucro" inputmode="decimal"><span class="u">%</span></div></div>
+      <div><label for="taxa">Taxa de venda</label><div class="fld"><input id="taxa" inputmode="decimal"><span class="u">%</span></div></div>
+    </div>
+    <p class="hint">Seu tempo = preparo + acabamento. Taxa de venda = marketplace ou cartão. Para uso próprio, deixe margem e taxa em 0.</p>
+  </details></section>
+
+  <section class="card"><details open>
+    <summary>Impressora e energia</summary>
+    <div class="row">
+      <div><label for="w">Consumo médio</label><div class="fld"><input id="w" inputmode="decimal"><span class="u">W</span></div></div>
+      <div><label for="kwh">Tarifa de energia</label><div class="fld"><input id="kwh" inputmode="decimal"><span class="u">R$/kWh</span></div></div>
+    </div>
+    <div class="row">
+      <div><label for="pimp">Preço da impressora</label><div class="fld"><input id="pimp" inputmode="decimal"><span class="u">R$</span></div></div>
+      <div><label for="vida">Vida útil estimada</label><div class="fld"><input id="vida" inputmode="decimal"><span class="u">h</span></div></div>
+    </div>
+    <div class="row">
+      <div><label for="manut">Manutenção</label><div class="fld"><input id="manut" inputmode="decimal"><span class="u">R$/h</span></div></div>
+      <div></div>
+    </div>
+    <p class="hint">Valores iniciais são estimativas — ajuste com o que você pagou e com a tarifa da sua conta de luz. Ficam salvos neste aparelho.</p>
+  </details></section>
+</div>
+
+<div class="res">
+  <section class="card"><details open>
+    <summary>Resultado</summary>
+    <div class="price">
+      <div class="lbl">Preço de venda por peça</div>
+      <i></i>
+      <div class="big" id="preco">—</div>
+      <div class="sub" id="lucroTxt"></div>
+    </div>
+    <div class="sub">Custo por peça</div>
+    <div class="big" id="custoUn" style="font-size:1.7rem">—</div>
+    <div class="bar" id="bar" role="img" aria-label="Composição do custo"></div>
+    <table id="tb"></table>
+    <div class="kv">
+      <div><b id="kTempo">—</b><span>tempo de impressão</span></div>
+      <div><b id="kPeso">—</b><span>filamento total</span></div>
+      <div><b id="kKwh">—</b><span>energia consumida</span></div>
+      <div><b id="kHora">—</b><span>custo da máquina por hora</span></div>
+    </div>
+    <div class="acts">
+      <button class="pri" id="copy" type="button">Copiar resumo</button>
+      <button id="reset" type="button">Limpar peça</button>
+    </div>
+  </details></section>
+</div>
+</div>
+<footer>Uma ideia começa aqui.</footer>
+</main>
+
+<script type="module">
+import { num, calcular } from "./calc.js";
+
+const PRESETS={PLA:120,PETG:130,ASA:160,TPU:170,Outro:150};
+const DEF={h:"2",m:"30",qtd:"1",falha:"5",extra:"0",mo:"10",vh:"30",lucro:"50",taxa:"0",
+  w:"150",kwh:"0,95",pimp:"6000",vida:"5000",manut:"0,50",fils:[{mat:"PLA",g:"80",kg:"120"}]};
+const PIECE=["h","m","qtd","extra","mo"];
+const IDS=["h","m","qtd","falha","extra","mo","vh","lucro","taxa","w","kwh","pimp","vida","manut"];
+const KEY="ligalab-calc3d-v1";
+const $=id=>document.getElementById(id);
+const brl=n=>n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const dec=(n,d=1)=>n.toLocaleString("pt-BR",{maximumFractionDigits:d});
+
+let st;
+try{st=Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||"{}"))}catch(e){st=Object.assign({},DEF)}
+if(!Array.isArray(st.fils)||!st.fils.length)st.fils=JSON.parse(JSON.stringify(DEF.fils));
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}};
+
+function drawFils(){
+  const box=$("fils");box.innerHTML="";
+  st.fils.forEach((f,i)=>{
+    const d=document.createElement("div");d.className="fil";
+    d.innerHTML=`<div><label>Material</label><select data-i="${i}" data-k="mat">${Object.keys(PRESETS).map(p=>`<option${p===f.mat?" selected":""}>${p}</option>`).join("")}</select></div>
+    <div><label>Peso</label><div class="fld"><input inputmode="decimal" data-i="${i}" data-k="g"><span class="u">g</span></div></div>
+    <div><label>Preço</label><div class="fld"><input inputmode="decimal" data-i="${i}" data-k="kg"><span class="u">R$/kg</span></div></div>
+    <button class="del" type="button" data-del="${i}" aria-label="Remover filamento"${st.fils.length<2?" disabled":""}>×</button>`;
+    box.appendChild(d);
+    d.querySelector('[data-k="g"]').value=f.g;
+    d.querySelector('[data-k="kg"]').value=f.kg;
+  });
+}
+$("fils").addEventListener("input",e=>{
+  const t=e.target,i=t.dataset.i,k=t.dataset.k;if(i===undefined)return;
+  st.fils[i][k]=t.value;
+  if(k==="mat"){st.fils[i].kg=String(PRESETS[t.value]);drawFils()}
+  render();
+});
+$("fils").addEventListener("click",e=>{
+  const b=e.target.closest("[data-del]");if(!b||st.fils.length<2)return;
+  st.fils.splice(+b.dataset.del,1);drawFils();render();
+});
+$("addFil").onclick=()=>{st.fils.push({mat:"PLA",g:"",kg:String(PRESETS.PLA)});drawFils();render()};
+
+IDS.forEach(id=>{$(id).value=st[id];$(id).addEventListener("input",()=>{st[id]=$(id).value;render()})});
+
+let last={};
+function render(){
+  const r=calcular(st);
+  const parts=[["Filamento",r.cFil,"--c1"],["Energia",r.cEn,"--c2"],["Máquina (desgaste + manutenção)",r.cMaq,"--c3"],["Mão de obra",r.cMo,"--c4"],["Falhas + extras",r.cFalha+r.cExtra,"--c5"]];
+  $("preco").textContent=brl(r.preco);
+  $("lucroTxt").textContent=r.lucro>0.005?`Lucro de ${brl(r.lucro)} por peça${r.taxa?` · ${brl(r.preco*r.taxa)} em taxas`:""}`:"Sem margem — preço igual ao custo";
+  $("custoUn").textContent=brl(r.un);
+  $("bar").innerHTML=r.total?parts.map(p=>`<i style="width:${p[1]/r.total*100}%;background:var(${p[2]})"></i>`).join(""):"";
+  $("tb").innerHTML=parts.map(p=>`<tr><td><span class="dot" style="background:var(${p[2]})"></span>${p[0]}</td><td>${brl(p[1])}</td></tr>`).join("")+
+    `<tr class="tot"><td>Custo total${r.qtd>1?` (${r.qtd} peças)`:""}</td><td>${brl(r.total)}</td></tr>`;
+  const min=Math.round(r.horas*60),hh=Math.floor(min/60),mm=min%60;
+  $("kTempo").textContent=`${hh}h ${String(mm).padStart(2,"0")}min`;
+  $("kPeso").textContent=dec(r.peso)+" g";
+  $("kKwh").textContent=dec(r.kwh,2)+" kWh";
+  $("kHora").textContent=brl(r.maqH+num(st.w)/1000*num(st.kwh));
+  last={parts,r,hh,mm};
+  save();
+}
+
+$("copy").onclick=async()=>{
+  const {parts,r,hh,mm}=last,b=$("copy");
+  const txt=[`Liga Lab — impressão 3D: ${dec(r.peso)} g, ${hh}h ${String(mm).padStart(2,"0")}min, ${r.qtd} peça(s)`,
+    ...parts.map(p=>`${p[0]}: ${brl(p[1])}`),`Custo total: ${brl(r.total)}`,`Custo por peça: ${brl(r.un)}`,`Preço de venda por peça: ${brl(r.preco)}`].join("\n");
+  try{await navigator.clipboard.writeText(txt);b.textContent="Copiado ✓"}catch(e){b.textContent="Não foi possível copiar"}
+  setTimeout(()=>b.textContent="Copiar resumo",1800);
+};
+$("reset").onclick=()=>{
+  PIECE.forEach(id=>{st[id]=id==="qtd"?"1":"0";$(id).value=st[id]});
+  st.fils=[{mat:"PLA",g:"",kg:String(PRESETS.PLA)}];drawFils();render();
+};
+
+drawFils();render();
+
+if("serviceWorker" in navigator){
+  try{navigator.serviceWorker.register("sw.js").catch(()=>{})}catch(e){}
+}
+</script>
+</body>
+</html>

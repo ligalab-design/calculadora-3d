@@ -1,0 +1,10 @@
+{
+  "name": "ligalab-calculadora-3d",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Calculadora de custo de impressão 3D da Liga Lab — app web instalável",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}

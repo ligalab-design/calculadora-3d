@@ -59,6 +59,7 @@ input:focus,select:focus,button:focus-visible,summary:focus-visible{outline:2px 
 .fld input{padding-right:48px}
 .fil{display:grid;grid-template-columns:1.1fr 1fr 1fr 44px;gap:8px;margin-bottom:8px;align-items:end}
 .fil label{font-size:.68rem}
+button:disabled{opacity:.4;cursor:default}
 button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);min-height:46px;padding:0 14px;font-weight:500}
 .del{padding:0;font-size:1.2rem;color:var(--mut)}
 .del:disabled{opacity:.3}
@@ -70,6 +71,7 @@ button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--lin
 .price .sub{color:var(--hero-mut)}
 .price .lbl{font-size:.66rem;letter-spacing:.2em;text-transform:uppercase;font-weight:600;color:var(--hero-mut)}
 .price i{display:block;width:32px;height:2px;background:var(--tan);margin:10px 0}
+.pf{margin:-4px 0 16px}.pfrow{display:grid;grid-template-columns:1fr auto;gap:8px}
 .bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin:14px 0 10px}
 .bar i{display:block;height:100%}
 table{width:100%;border-collapse:collapse;font-size:.88rem}
@@ -155,10 +157,17 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
   <section class="card"><details open>
     <summary>Resultado</summary>
     <div class="price">
-      <div class="lbl">Preço de venda por peça</div>
+      <div class="lbl" id="lblPreco">Preço de venda por peça</div>
       <i></i>
       <div class="big" id="preco">—</div>
       <div class="sub" id="lucroTxt"></div>
+    </div>
+    <div class="pf">
+      <label for="precoFinal">Alterar preço final por peça (opcional)</label>
+      <div class="pfrow">
+        <div class="fld"><input id="precoFinal" inputmode="decimal"><span class="u">R$</span></div>
+        <button id="usarSug" type="button">Usar sugerido</button>
+      </div>
     </div>
     <div class="sub">Custo por peça</div>
     <div class="big" id="custoUn" style="font-size:1.7rem">—</div>
@@ -185,16 +194,19 @@ import { num, calcular } from "./calc.js";
 
 const PRESETS={PLA:120,PETG:130,ASA:160,TPU:170,Outro:150};
 const DEF={h:"2",m:"30",qtd:"1",falha:"5",extra:"0",mo:"10",vh:"30",lucro:"50",taxa:"0",
-  w:"150",kwh:"0,95",pimp:"6000",vida:"5000",manut:"0,50",fils:[{mat:"PLA",g:"80",kg:"120"}]};
+  w:"150",kwh:"1,00",pimp:"10000",vida:"5000",manut:"0,50",precoFinal:"",v:2,fils:[{mat:"PLA",g:"80",kg:"120"}]};
 const PIECE=["h","m","qtd","extra","mo"];
-const IDS=["h","m","qtd","falha","extra","mo","vh","lucro","taxa","w","kwh","pimp","vida","manut"];
+const IDS=["h","m","qtd","falha","extra","mo","vh","lucro","taxa","w","kwh","pimp","vida","manut","precoFinal"];
 const KEY="ligalab-calc3d-v1";
 const $=id=>document.getElementById(id);
 const brl=n=>n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const dec=(n,d=1)=>n.toLocaleString("pt-BR",{maximumFractionDigits:d});
 
-let st;
-try{st=Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY)||"{}"))}catch(e){st=Object.assign({},DEF)}
+let saved={};
+try{saved=JSON.parse(localStorage.getItem(KEY)||"{}")||{}}catch(e){saved={}}
+const st=Object.assign({},DEF,saved);
+// v2: novos valores padrão de impressora e tarifa valem também para quem já tinha dados salvos.
+if(saved.v!==2){st.pimp=DEF.pimp;st.kwh=DEF.kwh;st.v=2}
 if(!Array.isArray(st.fils)||!st.fils.length)st.fils=JSON.parse(JSON.stringify(DEF.fils));
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}};
 
@@ -229,8 +241,15 @@ let last={};
 function render(){
   const r=calcular(st);
   const parts=[["Filamento",r.cFil,"--c1"],["Energia",r.cEn,"--c2"],["Máquina (desgaste + manutenção)",r.cMaq,"--c3"],["Mão de obra",r.cMo,"--c4"],["Falhas + extras",r.cFalha+r.cExtra,"--c5"]];
-  $("preco").textContent=brl(r.preco);
-  $("lucroTxt").textContent=r.lucro>0.005?`Lucro de ${brl(r.lucro)} por peça${r.taxa?` · ${brl(r.preco*r.taxa)} em taxas`:""}`:"Sem margem — preço igual ao custo";
+  const manual=num(st.precoFinal)>0;
+  const taxas=r.taxa?` · ${brl(r.precoFinal*r.taxa)} em taxas`:"";
+  $("lblPreco").textContent=manual?"Preço final definido por você":"Preço de venda por peça";
+  $("preco").textContent=brl(r.precoFinal);
+  $("precoFinal").placeholder=r.preco.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  $("usarSug").disabled=!manual;
+  $("lucroTxt").textContent=manual
+    ?`${r.lucroFinal>=0?"Lucro":"Prejuízo"} de ${brl(Math.abs(r.lucroFinal))} por peça (${dec(r.margemFinal,0)}% sobre o custo)${taxas} · sugerido ${brl(r.preco)}`
+    :(r.lucro>0.005?`Lucro de ${brl(r.lucro)} por peça${taxas}`:"Sem margem — preço igual ao custo");
   $("custoUn").textContent=brl(r.un);
   $("bar").innerHTML=r.total?parts.map(p=>`<i style="width:${p[1]/r.total*100}%;background:var(${p[2]})"></i>`).join(""):"";
   $("tb").innerHTML=parts.map(p=>`<tr><td><span class="dot" style="background:var(${p[2]})"></span>${p[0]}</td><td>${brl(p[1])}</td></tr>`).join("")+
@@ -240,21 +259,23 @@ function render(){
   $("kPeso").textContent=dec(r.peso)+" g";
   $("kKwh").textContent=dec(r.kwh,2)+" kWh";
   $("kHora").textContent=brl(r.maqH+num(st.w)/1000*num(st.kwh));
-  last={parts,r,hh,mm};
+  last={parts,r,hh,mm,manual};
   save();
 }
 
 $("copy").onclick=async()=>{
-  const {parts,r,hh,mm}=last,b=$("copy");
+  const {parts,r,hh,mm,manual}=last,b=$("copy");
   const txt=[`Liga Lab — impressão 3D: ${dec(r.peso)} g, ${hh}h ${String(mm).padStart(2,"0")}min, ${r.qtd} peça(s)`,
-    ...parts.map(p=>`${p[0]}: ${brl(p[1])}`),`Custo total: ${brl(r.total)}`,`Custo por peça: ${brl(r.un)}`,`Preço de venda por peça: ${brl(r.preco)}`].join("\n");
+    ...parts.map(p=>`${p[0]}: ${brl(p[1])}`),`Custo total: ${brl(r.total)}`,`Custo por peça: ${brl(r.un)}`,`Preço de venda por peça: ${brl(r.precoFinal)}${manual?` (definido manualmente; sugerido ${brl(r.preco)})`:""}`].join("\n");
   try{await navigator.clipboard.writeText(txt);b.textContent="Copiado ✓"}catch(e){b.textContent="Não foi possível copiar"}
   setTimeout(()=>b.textContent="Copiar resumo",1800);
 };
 $("reset").onclick=()=>{
   PIECE.forEach(id=>{st[id]=id==="qtd"?"1":"0";$(id).value=st[id]});
+  st.precoFinal="";$("precoFinal").value="";
   st.fils=[{mat:"PLA",g:"",kg:String(PRESETS.PLA)}];drawFils();render();
 };
+$("usarSug").onclick=()=>{st.precoFinal="";$("precoFinal").value="";render()};
 
 drawFils();render();
 

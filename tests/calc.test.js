@@ -119,13 +119,45 @@ test("cenário completo: valores padrão do app", () => {
   const r = calcular({
     fils: [{ g: "80", kg: "120" }], h: "2", m: "30", qtd: "1", falha: "5", extra: "0",
     mo: "10", vh: "30", lucro: "50", taxa: "0",
-    w: "150", kwh: "0,95", pimp: "6000", vida: "5000", manut: "0,50",
+    w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50",
   });
   perto(r.cFil, 9.6);
-  perto(r.cEn, 0.35625);
-  perto(r.cMaq, 4.25);
-  perto(r.cFalha, 0.7103125);
+  perto(r.cEn, 0.375);
+  perto(r.cMaq, 6.25);
+  perto(r.cFalha, 0.81125);
   perto(r.cMo, 5);
-  perto(r.total, 19.9165625);
-  perto(r.preco, 29.87484375);
+  perto(r.total, 22.03625);
+  perto(r.preco, 33.054375);
+});
+
+test("preço final: sem valor digitado, é igual ao sugerido", () => {
+  const r = calcular({ ...base, lucro: "50" });
+  perto(r.precoFinal, 18);
+  perto(r.lucroFinal, 6);
+  perto(r.margemFinal, 50);
+});
+
+test("preço final: valor digitado substitui o sugerido e recalcula lucro e margem", () => {
+  const r = calcular({ ...base, lucro: "50", precoFinal: "24" });
+  perto(r.preco, 18);          // sugerido não muda
+  perto(r.precoFinal, 24);
+  perto(r.lucroFinal, 12);
+  perto(r.margemFinal, 100);
+});
+
+test("preço final: desconta a taxa de venda do valor digitado", () => {
+  const r = calcular({ ...base, taxa: "10", precoFinal: "20" });
+  perto(r.lucroFinal, 6);      // 20 × 0,9 − 12
+  perto(r.margemFinal, 50);
+});
+
+test("preço final: abaixo do custo dá prejuízo (lucro negativo)", () => {
+  const r = calcular({ ...base, precoFinal: "9,00" });
+  perto(r.lucroFinal, -3);
+  perto(r.margemFinal, -25);
+});
+
+test("preço final: zero ou vazio volta ao sugerido", () => {
+  perto(calcular({ ...base, lucro: "50", precoFinal: "0" }).precoFinal, 18);
+  perto(calcular({ ...base, lucro: "50", precoFinal: "" }).precoFinal, 18);
 });

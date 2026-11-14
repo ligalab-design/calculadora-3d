@@ -10,7 +10,7 @@ export function num(v) {
  * Calcula custos e preço de venda.
  * Entradas (texto ou número): fils[{g, kg}], h, m, qtd, falha (%), extra (R$),
  * mo (min), vh (R$/h), lucro (%), taxa (%), w (W), kwh (R$/kWh),
- * pimp (R$), vida (h), manut (R$/h).
+ * pimp (R$), vida (h), manut (R$/h), precoFinal (R$, opcional — preço definido à mão).
  */
 export function calcular(s) {
   const fils = Array.isArray(s.fils) ? s.fils : [];
@@ -39,5 +39,11 @@ export function calcular(s) {
   const preco = (un * (1 + num(s.lucro) / 100)) / (1 - taxa);
   const lucro = preco * (1 - taxa) - un;
 
-  return { horas, qtd, peso, cFil, kwh, cEn, maqH, cMaq, cFalha, cMo, cExtra, total, un, taxa, preco, lucro };
+  // Preço final: o sugerido, ou o que a pessoa digitou. Lucro e margem reais saem dele.
+  const pf = num(s.precoFinal);
+  const precoFinal = pf > 0 ? pf : preco;
+  const lucroFinal = precoFinal * (1 - taxa) - un;
+  const margemFinal = un > 0 ? (lucroFinal / un) * 100 : 0;
+
+  return { horas, qtd, peso, cFil, kwh, cEn, maqH, cMaq, cFalha, cMo, cExtra, total, un, taxa, preco, lucro, precoFinal, lucroFinal, margemFinal };
 }

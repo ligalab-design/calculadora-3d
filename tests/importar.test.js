@@ -270,3 +270,59 @@ test("ler3mf: sem plate_N.json não inventa dimensões", async () => {
   assert.equal(r.dims, null);
   assert.equal(r.objetos, 0);
 });
+
+// ---------- Formato real do Bambu Studio 2.x (estrutura de um arquivo exportado) ----------
+
+const SLICE_REAL = `<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <header>
+    <header_item key="X-BBL-Client-Type" value="slicer"/>
+    <header_item key="X-BBL-Client-Version" value="02.09.01.70"/>
+  </header>
+  <plate>
+    <metadata key="index" value="1"/>
+    <metadata key="extruder_type" value="0"/>
+    <metadata key="printer_model_id" value="N7"/>
+    <metadata key="nozzle_diameters" value="0.4"/>
+    <metadata key="prediction" value="43324"/>
+    <metadata key="weight" value="119.21"/>
+    <metadata key="first_layer_time" value="367,583618"/>
+    <metadata key="support_used" value="true"/>
+    <metadata key="filament_maps" value="1"/>
+    <object identify_id="85" name="peca.stl" skipped="false" />
+    <filament id="1" tray_info_idx="GFA00" type="PLA" color="#000000" used_m="39.34" used_g="119.21" group_id="0" nozzle_diameter="0.40" volume_type="Standard" used_for_object="true" used_for_support="true" directly_used="true" total_load_time="26.00" total_unload_time="0.00"/>
+    <nozzle id="0" extruder_id="1" nozzle_diameter="0.4" volume_type="Standard"/>
+    <layer_filament_lists>
+      <layer_filament_list filament_list="0" layer_ranges="0 1248" />
+    </layer_filament_lists>
+  </plate>
+</config>`;
+const PLACA_REAL = '{"bbox_all":[57.280030000000004,63.59454,195.72215000000003,203.19503],"bbox_objects":[{"area":5889.43017578125,"bbox":[57.280030000000004,63.59454,195.72215000000003,203.19503],"id":106,"layer_height":0.20000000298023224,"name":"peca.stl"}],"bed_type":"textured_plate","filament_colors":["#000000"],"filament_ids":[0],"first_extruder":0,"first_layer_time":367.5836181640625,"is_seq_print":false,"nozzle_diameter":0.4000000059604645,"version":2}';
+const GCODE_REAL = `; HEADER_BLOCK_START
+; BambuStudio 02.09.01.70
+; model printing time: 11h 55m 2s; total estimated time: 12h 2m 4s
+; total layer number: 1249
+; total filament length [mm] : 39336.14
+; total filament volume [cm^3] : 94614.50
+; total filament weight [g] : 119.21
+; filament_density: 1.26
+; filament_diameter: 1.75
+; max_z_height: 149.96
+; filament: 1
+; support_material_on_wipe_tower: 0
+; HEADER_BLOCK_END
+
+; CONFIG_BLOCK_START
+; accel_to_decel_enable = 0
+`;
+
+test("ler3mf: arquivo no formato real do Bambu Studio 2.x", async () => {
+  const r = await ler3mf(zip([["Metadata/plate_1.json", PLACA_REAL], ["3D/3dmodel.model", "<model/>"], ["Metadata/plate_1.gcode", GCODE_REAL + "G1 X1 Y1\n".repeat(100000)], ["Metadata/slice_info.config", SLICE_REAL]]));
+  assert.equal(r.ok, true);
+  assert.equal(r.segundos, 43324);
+  assert.deepEqual(r.fils, [{ mat: "PLA", g: 119.21, cor: "#000000" }]);
+  assert.deepEqual(coresUsadas(r.fils), ["Preto"]);
+  assert.equal(r.objetos, 1);
+  assert.equal(textoDimensoes(r.dims), "138 × 140 × 150 mm");
+  assert.equal(r.aviso, "");
+});

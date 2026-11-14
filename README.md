@@ -56,5 +56,5 @@ no GitHub Pages (Settings → Pages → Source: GitHub Actions).
 
 ## Atualizar o app
 
-Ao mudar qualquer arquivo, aumente o número em `CACHE` no `sw.js`
+Ao mudar qualquer arquivo, aumente `VERSAO` no `config.js` (aparece no rodapé do app) e o número em `CACHE` no `sw.js`
 (por exemplo, `ligalab-calc-v6`) para os aparelhos baixarem a versão nova.

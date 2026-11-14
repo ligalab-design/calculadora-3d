@@ -7,7 +7,7 @@ import {
 import { lerGcode, ler3mf, coresUsadas, textoDimensoes } from "./importar.js";
 import { CFG_KEYS, documento, aplicar } from "./sync.js";
 import { criarNuvem } from "./nuvem.js";
-import { GOOGLE_CLIENT_ID } from "./config.js";
+import { GOOGLE_CLIENT_ID, VERSAO } from "./config.js";
 
 const PRESETS = { PLA: 130, PETG: 130, ASA: 160, TPU: 170, Outro: 150 };
 const DEF = {
@@ -555,6 +555,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 window.addEventListener("online", () => nuvem.retomar());
 
 // ---------- Início ----------
+$("versao").textContent = "v" + VERSAO;
 drawCliSel(); drawFils(); render(); mostrar(location.hash.slice(1));
 nuvem.retomar();
 

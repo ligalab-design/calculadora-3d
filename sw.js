@@ -1,6 +1,7 @@
 // Service worker: guarda o app para funcionar offline.
-// Ao publicar uma versão nova, mude o número abaixo para forçar a atualização.
-const CACHE = "ligalab-calc-v10";
+// Com internet, busca sempre a versão mais nova dos arquivos; sem internet (ou com a rede lenta), usa a cópia guardada.
+// Ao publicar uma versão nova, mude o número abaixo (e VERSAO no config.js).
+const CACHE = "ligalab-calc-v11";
 const ARQUIVOS = [
   "./",
   "index.html",
@@ -19,9 +20,14 @@ const ARQUIVOS = [
   "icons/icon-192.png",
   "icons/icon-512.png",
 ];
+const LIMITE_MS = 4000; // quanto esperar pela rede antes de usar a cópia guardada
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARQUIVOS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(ARQUIVOS.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
@@ -32,22 +38,40 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// Responde do cache na hora e atualiza em segundo plano quando há internet.
+/** Arquivos do app: rede primeiro (sempre a versão publicada), cópia guardada se a rede falhar ou demorar. */
+async function redePrimeiro(req) {
+  const cache = await caches.open(CACHE);
+  const guardado = () => cache.match(req, { ignoreSearch: true });
+  const daRede = fetch(req.url, { cache: "no-cache", credentials: "same-origin" }).then((r) => {
+    if (r && r.ok) cache.put(req, r.clone());
+    return r;
+  });
+  try {
+    const r = await Promise.race([daRede, new Promise((_, falha) => setTimeout(() => falha(new Error("rede lenta")), LIMITE_MS))]);
+    if (r && r.ok) return r;
+    return (await guardado()) || r;
+  } catch (e) {
+    daRede.catch(() => {}); // a resposta atrasada ainda atualiza a cópia guardada, se chegar
+    const g = await guardado();
+    if (g) return g;
+    return daRede;
+  }
+}
+
+/** Fontes: mudam raramente; usa a cópia guardada e só vai à rede se não houver. */
+async function cachePrimeiro(req) {
+  const cache = await caches.open(CACHE);
+  const g = await cache.match(req);
+  if (g) return g;
+  const r = await fetch(req);
+  if (r && (r.ok || r.type === "opaque")) cache.put(req, r.clone());
+  return r;
+}
+
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
-  // Só guarda os arquivos do próprio app e as fontes. Login e Google Drive vão sempre direto para a rede.
   const url = new URL(e.request.url);
-  if (url.origin !== self.location.origin && !/^fonts\.(googleapis|gstatic)\.com$/.test(url.hostname)) return;
-  e.respondWith(
-    caches.open(CACHE).then(async (c) => {
-      const guardado = await c.match(e.request);
-      const rede = fetch(e.request)
-        .then((r) => {
-          if (r && (r.ok || r.type === "opaque")) c.put(e.request, r.clone());
-          return r;
-        })
-        .catch(() => guardado);
-      return guardado || rede;
-    })
-  );
+  if (url.origin === self.location.origin) e.respondWith(redePrimeiro(e.request));
+  else if (/^fonts\.(googleapis|gstatic)\.com$/.test(url.hostname)) e.respondWith(cachePrimeiro(e.request));
+  // Login e Google Drive vão sempre direto para a rede, sem passar por aqui.
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { num, calcular } from "../calc.js";
+import { num, calcular, arredondar, precoLote, tabelaQuantidade } from "../calc.js";
 
 const perto = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg ?? ""} esperado ${b}, veio ${a}`);
 
@@ -160,4 +160,104 @@ test("preço final: abaixo do custo dá prejuízo (lucro negativo)", () => {
 test("preço final: zero ou vazio volta ao sugerido", () => {
   perto(calcular({ ...base, lucro: "50", precoFinal: "0" }).precoFinal, 18);
   perto(calcular({ ...base, lucro: "50", precoFinal: "" }).precoFinal, 18);
+});
+
+// ---------- Arredondamento ----------
+
+test("arredondar: sem modo devolve o mesmo valor", () => {
+  assert.equal(arredondar(33.05), 33.05);
+  assert.equal(arredondar(33.05, "nenhum"), 33.05);
+});
+
+test("arredondar ,90: sobe para o próximo valor terminado em ,90", () => {
+  perto(arredondar(33.05, "90"), 33.9);
+  perto(arredondar(33.9, "90"), 33.9);
+  perto(arredondar(33.91, "90"), 34.9);
+  perto(arredondar(0.5, "90"), 0.9);
+  perto(arredondar(19.999, "90"), 20.9);
+});
+
+test("arredondar inteiro: sobe para o real cheio", () => {
+  assert.equal(arredondar(33.05, "inteiro"), 34);
+  assert.equal(arredondar(34, "inteiro"), 34);
+  assert.equal(arredondar(33.001, "inteiro"), 33);
+});
+
+test("arredondar: zero, negativo ou inválido viram 0", () => {
+  assert.equal(arredondar(0, "90"), 0);
+  assert.equal(arredondar(-5, "inteiro"), 0);
+  assert.equal(arredondar(NaN, "90"), 0);
+});
+
+test("calcular: arredondamento sobe o preço sugerido e o lucro acompanha", () => {
+  const r = calcular({ ...base, lucro: "50", fils: [{ g: "110", kg: "120" }], arred: "90" });
+  perto(r.precoBruto, 19.8);
+  perto(r.preco, 19.9);
+  perto(r.lucro, 19.9 - 13.2);
+  perto(r.precoFinal, 19.9);
+});
+
+test("calcular: preço definido à mão não é arredondado", () => {
+  const r = calcular({ ...base, lucro: "50", arred: "inteiro", precoFinal: "17,35" });
+  perto(r.precoFinal, 17.35);
+});
+
+// ---------- Preço por quantidade ----------
+
+const lote = { ...base, mo: "60", vh: "30", lucro: "50" }; // filamento 12 + mão de obra 30
+
+test("precoLote: com a mesma quantidade da mesa, bate com o cálculo normal", () => {
+  const r = calcular(lote);
+  const l = precoLote(lote, 1);
+  perto(l.un, r.un);
+  perto(l.preco, Math.round(r.preco * 100) / 100);
+});
+
+test("precoLote: mão de obra se dilui, custo variável não", () => {
+  const l = precoLote(lote, 10);
+  perto(l.un, 12 + 3);
+  perto(l.preco, 22.5);
+  perto(l.total, 225);
+});
+
+test("precoLote: considera as peças por mesa no custo variável", () => {
+  const l = precoLote({ ...lote, qtd: "4" }, 4); // 12 de filamento para 4 peças
+  perto(l.un, 3 + 7.5);
+  perto(l.un, calcular({ ...lote, qtd: "4" }).un);
+});
+
+test("precoLote: quantidade inválida vira 1", () => {
+  assert.equal(precoLote(lote, 0).n, 1);
+  assert.equal(precoLote(lote, "").n, 1);
+  assert.equal(precoLote(lote, "abc").n, 1);
+});
+
+test("tabelaQuantidade: desconto cresce com a quantidade", () => {
+  const t = tabelaQuantidade(lote);
+  assert.deepEqual(t.map((l) => l.n), [1, 5, 10, 50]);
+  perto(t[0].desconto, 0);
+  perto(t[0].preco, 63);
+  perto(t[1].preco, 27);
+  assert.ok(t[1].desconto > 0 && t[2].desconto > t[1].desconto && t[3].desconto > t[2].desconto);
+});
+
+test("precoLote: preço por peça em centavos inteiros, e o total bate com ele", () => {
+  const l = precoLote({ ...lote, fils: [{ g: "101", kg: "123" }] }, 7);
+  perto(l.preco, Math.round(l.preco * 100) / 100);
+  perto(l.total, l.preco * 7);
+});
+
+test("tabelaQuantidade: sem mão de obra não há desconto", () => {
+  const t = tabelaQuantidade(base);
+  for (const l of t) perto(l.desconto, 0);
+});
+
+test("tabelaQuantidade: aplica o arredondamento em cada linha", () => {
+  const t = tabelaQuantidade({ ...lote, arred: "90" }, [1, 10]);
+  perto(t[0].preco, 63.9);
+  perto(t[1].preco, 22.9);
+});
+
+test("tabelaQuantidade: custo zero não gera NaN", () => {
+  for (const l of tabelaQuantidade({})) for (const v of Object.values(l)) assert.ok(Number.isFinite(v));
 });

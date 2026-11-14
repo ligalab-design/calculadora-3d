@@ -1,10 +1,12 @@
 // Service worker: guarda o app para funcionar offline.
 // Ao publicar uma versão nova, mude o número abaixo para forçar a atualização.
-const CACHE = "ligalab-calc-v2";
+const CACHE = "ligalab-calc-v3";
 const ARQUIVOS = [
   "./",
   "index.html",
+  "app.js",
   "calc.js",
+  "dados.js",
   "manifest.webmanifest",
   "icons/icon-180.png",
   "icons/icon-192.png",

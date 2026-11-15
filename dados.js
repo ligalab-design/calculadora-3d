@@ -88,10 +88,13 @@ export const CONSOME = ["pronto", "entregue"];
 
 /** Situação do pedido. Registros antigos com a situação "pago" contam como entregues. */
 export const statusDe = (e) => { const s = e && e.status; return s === "pago" ? "entregue" : STATUS.some(([x]) => x === s) ? s : "orcado"; };
-/** O pedido está pago? Registros antigos com a situação "pago" contam como pagos. */
-export const pagoDe = (e) => !!e && (e.pago === true || (e.pago === undefined && e.status === "pago"));
-/** Conta como venda: aprovado em diante, ou já pago. */
-export const vendido = (e) => VENDIDO.includes(statusDe(e)) || pagoDe(e);
+/**
+ * O pedido está pago? Um pedido em "Orçado" nunca está pago: o pagamento só existe de Aprovado em diante.
+ * Registros antigos com a situação "pago" contam como pagos.
+ */
+export const pagoDe = (e) => !!e && statusDe(e) !== "orcado" && (e.pago === true || (e.pago === undefined && e.status === "pago"));
+/** Conta como venda: aprovado em diante. */
+export const vendido = (e) => VENDIDO.includes(statusDe(e));
 
 /** Todos os filamentos com peso são rolos cadastrados que ainda existem (e há pelo menos um). */
 export function filamentosDefinidos(fils, rolos) {
@@ -100,20 +103,36 @@ export function filamentosDefinidos(fils, rolos) {
 }
 
 /**
- * Um pedido só sai de "Orçado" se todos os filamentos forem rolos cadastrados.
- * Voltar para "Orçado" e mudar entre as outras situações é sempre permitido.
+ * Confere se um pedido pode ficar na situação `para`. Devolve "" se pode, ou o motivo da recusa:
+ * - "rolo": fora de "Orçado", todos os filamentos precisam ser rolos cadastrados;
+ * - "pago": um pedido pago não volta para "Orçado" (é preciso desmarcar o pagamento antes).
  */
-export function podeMudarSituacao(de, para, fils, rolos) {
-  return statusDe({ status: para }) === "orcado" || statusDe({ status: de }) !== "orcado" || filamentosDefinidos(fils, rolos);
+export function verificarSituacao({ para, fils, rolos, pago }) {
+  if (statusDe({ status: para }) === "orcado") return pago ? "pago" : "";
+  return filamentosDefinidos(fils, rolos) ? "" : "rolo";
 }
 
 /**
  * Traz um pedido antigo para o formato atual: situação válida, marca de pago e marca de estoque descontado.
- * Pedidos de antes desta marca que usam rolos contam como já descontados (era o padrão ao salvar).
+ * Pedidos de antes da marca de estoque contam como ainda não descontados: descontam ao virar Pronto.
  */
 export function atualizarPedido(e) {
-  const usaRolo = !!(e && e.snap && Array.isArray(e.snap.fils) && e.snap.fils.some((f) => f && f.rolo));
-  return { ...e, status: statusDe(e), pago: pagoDe(e), consumido: typeof e.consumido === "boolean" ? e.consumido : usaRolo };
+  return { ...e, status: statusDe(e), pago: pagoDe(e), consumido: e.consumido === true };
+}
+
+/**
+ * Contabiliza de novo o filamento de peças refeitas (defeito, reimpressão): desconta dos rolos o
+ * filamento de `pecas` peças e registra no pedido. Com `reduzirLucro`, soma o custo dessas peças
+ * ao pedido, o que diminui o lucro dele. Devolve { rolos, pedido } novos, ou null se não há o que fazer.
+ */
+export function reimprimir(rolos, pedido, pecas, reduzirLucro) {
+  const n = Math.round(num(pecas));
+  if (!pedido || !(n > 0)) return null;
+  const qtdMesa = Math.max(1, Math.round(num(pedido.qtd)) || 1);
+  return {
+    rolos: baixarEstoque(rolos, (pedido.snap && pedido.snap.fils) || [], n / qtdMesa),
+    pedido: { ...pedido, refeitas: (Math.round(num(pedido.refeitas)) || 0) + n, custoExtra: num(pedido.custoExtra) + (reduzirLucro ? num(pedido.un) * n : 0) },
+  };
 }
 
 /**
@@ -138,7 +157,7 @@ export function valoresPedido(e) {
   return {
     pecas,
     receita: preco * pecas,
-    lucro: (preco * (1 - taxa) - num(e.un)) * pecas,
+    lucro: (preco * (1 - taxa) - num(e.un)) * pecas - num(e.custoExtra), // custoExtra: peças refeitas que reduziram o lucro
     filamento: (num(e.peso) / qtdMesa) * pecas,
   };
 }
@@ -183,7 +202,7 @@ export function resumoVendas(hist) {
  * Monta o registro de um pedido. `r` é o resultado de calcular(st).
  * `vendidas` é a quantidade do pedido; `preco` e `un` são por peça e, se omitidos, vêm de `r`.
  */
-export function entradaHistorico(st, r, { id, data, dia, nome, cliente, clienteNome, status, pago, consumido, vendidas, preco, un }) {
+export function entradaHistorico(st, r, { id, data, dia, nome, cliente, clienteNome, status, pago, consumido, refeitas, custoExtra, vendidas, preco, un }) {
   const snap = {};
   for (const k of PECA_KEYS) if (st[k] !== undefined) snap[k] = copia(st[k]);
   return {
@@ -196,6 +215,8 @@ export function entradaHistorico(st, r, { id, data, dia, nome, cliente, clienteN
     status: statusDe({ status }),
     pago: pagoDe({ status, pago }),
     consumido: consumido === true,
+    refeitas: Math.round(num(refeitas)) || 0,
+    custoExtra: num(custoExtra),
     qtd: r.qtd,
     vendidas: Math.max(1, Math.round(num(vendidas)) || r.qtd),
     peso: r.peso,

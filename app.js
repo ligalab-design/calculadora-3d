@@ -1,7 +1,7 @@
 // Tela do app: liga os campos aos cálculos (calc.js), aos dados (dados.js) e à importação (importar.js).
 import { num, calcular, tabelaQuantidade, precoLote } from "./calc.js";
 import {
-  PECA_KEYS, STATUS, statusDe, pagoDe, atualizarPedido, consumirEstoque, podeMudarSituacao, precoKg, novoRolo, editarRolo, duplicarRolo, faltaEstoque, estoqueBaixo, novoCliente, atualizarPeca,
+  PECA_KEYS, STATUS, CONSOME, statusDe, pagoDe, atualizarPedido, consumirEstoque, verificarSituacao, reimprimir, precoKg, novoRolo, editarRolo, duplicarRolo, faltaEstoque, estoqueBaixo, novoCliente, atualizarPeca,
   entradaHistorico, valoresPedido, filtrarHistorico, resumoVendas, textoOrcamento, montarBackup, lerBackup,
 } from "./dados.js";
 import { lerGcode, ler3mf, coresUsadas, textoDimensoes } from "./importar.js";
@@ -12,7 +12,7 @@ import { GOOGLE_CLIENT_ID, VERSAO } from "./config.js";
 const PRESETS = { PLA: 130, PETG: 130, ASA: 160, TPU: 170, Outro: 150 };
 const DEF = {
   h: "2", m: "30", qtd: "1", falha: "5", extra: "0", mo: "30", vh: "30", lucro: "100", taxa: "0", arred: "nenhum",
-  w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", dims: "", cores: "", v: 3,
+  w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", dims: "", cores: "", v: 4,
   cli: "", cliNovo: "", pedStatus: "orcado", pedPago: false, editando: "", cfgMod: 0, apagados: {},
   // Padrões aplicados a cada novo pedido (e ao duplicar). Editáveis na aba Calcular.
   padrao: { lucro: "100", mo: "30", precos: { PLA: "130", PETG: "130", ASA: "160", TPU: "170", Outro: "150" } },
@@ -49,7 +49,9 @@ if (!(saved.v >= 3)) {
   if (Array.isArray(st.fils)) st.fils.forEach((f) => { if (f && !f.rolo && f.mat === "PLA" && f.kg === "120") f.kg = DEF.padrao.precos.PLA; });
   st.cfgMod = Date.now();
 }
-st.v = 3;
+// v4: pedidos que ainda não chegaram a Pronto contam como não descontados dos rolos (descontam ao virar Pronto).
+if (!(saved.v >= 4) && Array.isArray(st.hist)) st.hist.forEach((h) => { if (h && h.consumido === true && !CONSOME.includes(statusDe(h))) h.consumido = false; });
+st.v = 4;
 normalizar();
 
 function normalizar() {
@@ -61,7 +63,8 @@ function normalizar() {
   if (!STATUS.some(([s]) => s === st.pedStatus)) st.pedStatus = "orcado";
   st.pedPago = st.pedPago === true;
   // Pedidos antigos: situação "pago" vira Entregue + pago, e ganham a marca de estoque descontado.
-  st.hist = st.hist.map((h) => (h && typeof h === "object" && (h.status === "pago" || typeof h.pago !== "boolean" || typeof h.consumido !== "boolean") ? atualizarPedido(h) : h));
+  st.hist = st.hist.map((h) => (h && typeof h === "object" && (h.status === "pago" || typeof h.pago !== "boolean" || typeof h.consumido !== "boolean" || (h.pago && statusDe(h) === "orcado")) ? atualizarPedido(h) : h));
+  if (st.pedStatus === "orcado" && !st.hist.some((h) => h.id === st.editando)) st.pedPago = false;
   if (!st.apagados || typeof st.apagados !== "object" || Array.isArray(st.apagados)) st.apagados = {};
   const pd = st.padrao && typeof st.padrao === "object" ? st.padrao : {};
   st.padrao = { lucro: String(pd.lucro ?? DEF.padrao.lucro), mo: String(pd.mo ?? DEF.padrao.mo), precos: Object.assign(clone(DEF.padrao.precos), pd.precos && typeof pd.precos === "object" ? pd.precos : {}) };
@@ -150,7 +153,7 @@ $("addFil").onclick = () => { st.fils.push({ rolo: "", mat: "PLA", g: "", kg: pr
 
 $("pedStatus").innerHTML = opcoes(STATUS, st.pedStatus);
 $("pedPago").checked = st.pedPago === true;
-$("pedPago").addEventListener("change", () => { st.pedPago = $("pedPago").checked; save(); });
+$("pedPago").addEventListener("change", () => { st.pedPago = $("pedPago").checked; render(); });
 IDS.forEach((id) => { $(id).value = st[id] ?? ""; $(id).addEventListener("input", () => { st[id] = $(id).value; if (CFG_KEYS.includes(id)) st.cfgMod = Date.now(); render(); }); });
 Object.entries(ORC).forEach(([id, k]) => { $(id).value = st.orc[k] ?? ""; $(id).addEventListener("input", () => { st.orc[k] = $(id).value; drawOrc(); save(); }); });
 
@@ -304,6 +307,8 @@ function render() {
   $("editBox").hidden = !emEdicao;
   if (emEdicao) $("editBox").textContent = `Editando o pedido “${emEdicao.nome}”. Salvar atualiza esse pedido; para começar outro, toque em “Novo pedido”.${emEdicao.consumido ? " O filamento deste pedido já foi descontado dos rolos e não será descontado de novo." : ""}`;
   $("cliNovoBox").hidden = st.cli !== "novo";
+  // Pagamento só a partir de Aprovado: em Orçado a caixa fica travada (a menos que precise ser desmarcada).
+  $("pedPago").disabled = st.pedStatus === "orcado" && st.pedPago !== true;
 
   last = { parts, r, manual, ped };
   drawOrc();
@@ -370,12 +375,15 @@ function consumir(p) {
   p.consumido = true; toca(p);
   return mexeu;
 }
-const AVISO_ROLO = "Para sair de “Orçado”, cada filamento do pedido precisa ser um rolo cadastrado (aba Rolos).";
+const AVISOS = {
+  rolo: "Fora de “Orçado”, cada filamento do pedido precisa ser um rolo cadastrado (aba Rolos).",
+  pago: "Um pedido pago não volta para “Orçado”. Desmarque “Pago” antes.",
+};
 $("salvar").onclick = () => {
   const { r, ped } = last;
-  const editado = st.hist.find((h) => h.id === st.editando);
-  if (!podeMudarSituacao(editado ? statusDe(editado) : "orcado", st.pedStatus, st.fils, st.rolos)) {
-    msg($("salvarMsg"), `${AVISO_ROLO} Escolha o rolo em “Filamento” ou deixe a situação como “Orçado”. O pedido não foi salvo.`, false);
+  const motivo = verificarSituacao({ para: st.pedStatus, fils: st.fils, rolos: st.rolos, pago: st.pedPago === true });
+  if (motivo) {
+    msg($("salvarMsg"), `${AVISOS[motivo]}${motivo === "rolo" ? " Escolha o rolo em “Filamento” ou deixe a situação como “Orçado”." : ""} O pedido não foi salvo.`, false);
     return;
   }
   if (st.cli === "novo") {
@@ -388,7 +396,7 @@ $("salvar").onclick = () => {
   let pedido;
   if (antigo) {
     // Edição: atualiza o mesmo pedido, mantendo a data de criação e a marca de estoque já descontado.
-    pedido = st.hist[i] = toca(entradaHistorico(st, r, { ...dados, id: antigo.id, data: antigo.data, dia: antigo.dia, consumido: antigo.consumido === true }));
+    pedido = st.hist[i] = toca(entradaHistorico(st, r, { ...dados, id: antigo.id, data: antigo.data, dia: antigo.dia, consumido: antigo.consumido === true, refeitas: antigo.refeitas, custoExtra: antigo.custoExtra }));
   } else {
     pedido = toca(entradaHistorico(st, r, { ...dados, id: uid(), data: agora.toISOString(), dia: ymd(agora) }));
     st.hist.unshift(pedido);
@@ -401,7 +409,8 @@ $("salvar").onclick = () => {
 };
 
 const filtro = { texto: "", status: "", periodo: "", cliente: "", pago: "" };
-let bloqueado = ""; // id do pedido cuja mudança de situação acabou de ser recusada
+let bloqueado = {}; // { id, motivo } do pedido cuja mudança de situação acabou de ser recusada
+let refazendo = ""; // id do pedido com o painel "Refazer peça" aberto
 function periodo(p) {
   const h = new Date(), a = h.getFullYear(), m = h.getMonth();
   if (p === "mes") return { de: ymd(new Date(a, m, 1)), ate: ymd(new Date(a, m + 1, 0)) };
@@ -416,7 +425,7 @@ $("fPago").innerHTML = opcoes([["", "Todos"], ["sim", "Pagos"], ["nao", "A receb
   $(id).addEventListener("input", () => { filtro[k] = $(id).value; drawHistList(); });
 });
 function drawHist() {
-  bloqueado = "";
+  bloqueado = {}; refazendo = "";
   if (filtro.cliente && !st.clientes.some((c) => c.id === filtro.cliente)) filtro.cliente = "";
   $("fCliente").innerHTML = opcoes([["", "Todos"], ...st.clientes.map((c) => [c.id, c.nome])], filtro.cliente);
   drawHistList();
@@ -432,12 +441,15 @@ function drawHistList() {
     <div class="ihead"><b>${esc(e.nome)}</b><span>${brl(v.receita)}</span></div>
     <div class="sub">${e.clienteNome ? esc(e.clienteNome) + " · " : ""}${diaBr(e)} · ${v.pecas} peça(s) × ${brl(num(e.preco))} · lucro ${brl(v.lucro)}</div>
     <div class="sub">${dec(v.filamento)} g de filamento · ${tempo(num(e.horas))} por mesa · custo ${brl(num(e.un))} por peça</div>
-    ${e.id === bloqueado ? `<p class="warn" style="margin:6px 0 0">${AVISO_ROLO} Toque em “Editar”, escolha os rolos e salve.</p>` : ""}
-    <div class="sub">${pagoDe(e) ? "Pago" : "A receber"}${e.consumido && e.snap && (e.snap.fils || []).some((f) => f.rolo) ? " · filamento já descontado dos rolos" : ""}</div>
+    ${e.id === bloqueado.id ? `<p class="warn" style="margin:6px 0 0">${AVISOS[bloqueado.motivo]}${bloqueado.motivo === "rolo" ? " Toque em “Editar”, escolha os rolos e salve." : ""}</p>` : ""}
+    <div class="sub">${statusDe(e) === "orcado" ? "Orçamento" : pagoDe(e) ? "Pago" : "A receber"}${e.consumido ? " · filamento descontado dos rolos" : ""}${num(e.refeitas) ? ` · ${Math.round(num(e.refeitas))} peça(s) refeita(s)` : ""}${num(e.custoExtra) ? ` (−${brl(num(e.custoExtra))} no lucro)` : ""}</div>
     <div class="rrow"><div><label>Situação</label><select data-status="${esc(e.id)}">${opcoes(STATUS, statusDe(e))}</select></div>
     <button type="button" data-abrir="${esc(e.id)}">Editar</button></div>
-    <label class="chk"><input type="checkbox" data-pago="${esc(e.id)}"${pagoDe(e) ? " checked" : ""}> Pago</label>
-    <div class="acts"><button type="button" data-dup="${esc(e.id)}">Duplicar</button><button type="button" data-excluir="${esc(e.id)}">Excluir</button></div>
+    <label class="chk"${statusDe(e) === "orcado" ? ' style="opacity:.5"' : ""}><input type="checkbox" data-pago="${esc(e.id)}"${pagoDe(e) ? " checked" : ""}${statusDe(e) === "orcado" ? " disabled" : ""}> Pago${statusDe(e) === "orcado" ? " (a partir de Aprovado)" : ""}</label>
+    ${e.id === refazendo ? `<div class="row one" style="margin:12px 0 0"><div><label>Peças refeitas (defeito, reimpressão)</label><div class="fld"><input inputmode="numeric" data-rq value="1"><span class="u">un</span></div></div></div>
+    <p class="hint" style="margin:0">Desconta dos rolos o filamento dessas peças. O custo é de ${brl(num(e.un))} por peça: quer reduzir o lucro deste pedido nesse valor?</p>
+    <div class="acts"><button type="button" class="pri" data-rfaz="lucro">Descontar e reduzir o lucro</button><button type="button" data-rfaz="estoque">Descontar só do estoque</button><button type="button" data-rfaz="cancelar">Cancelar</button></div>` : ""}
+    <div class="acts"><button type="button" data-dup="${esc(e.id)}">Duplicar</button>${e.consumido ? `<button type="button" data-refazer="${esc(e.id)}">Refazer peça</button>` : ""}<button type="button" data-excluir="${esc(e.id)}">Excluir</button></div>
   </div>`;
   }).join("") : `<p class="hint" style="margin:0">${st.hist.length ? "Nenhum pedido corresponde aos filtros." : "Nenhum pedido salvo ainda. Na aba Calcular, dê um nome à peça e toque em “Salvar pedido”."}</p>`;
 }
@@ -445,16 +457,16 @@ $("histList").addEventListener("change", (e) => {
   const idPago = e.target.dataset.pago;
   if (idPago !== undefined) {
     const p = st.hist.find((h) => h.id === idPago); if (!p) return;
+    if (statusDe(p) === "orcado") { drawHistList(); return; } // Orçado nunca está pago
     p.pago = e.target.checked; toca(p);
     if (st.editando === p.id) { st.pedPago = p.pago; $("pedPago").checked = p.pago; }
     save(); drawHistList(); return;
   }
   const id = e.target.dataset.status; if (id === undefined) return;
   const it = st.hist.find((h) => h.id === id); if (!it) return;
-  if (!podeMudarSituacao(statusDe(it), e.target.value, it.snap && it.snap.fils, st.rolos)) {
-    bloqueado = it.id; drawHistList(); return; // redesenhar devolve a situação anterior ao campo
-  }
-  bloqueado = "";
+  const motivo = verificarSituacao({ para: e.target.value, fils: it.snap && it.snap.fils, rolos: st.rolos, pago: pagoDe(it) });
+  if (motivo) { bloqueado = { id: it.id, motivo }; drawHistList(); return; } // redesenhar devolve a situação anterior ao campo
+  bloqueado = {};
   it.status = e.target.value; toca(it);
   if (st.editando === it.id) { st.pedStatus = it.status; $("pedStatus").value = it.status; }
   // Passou a Pronto ou Entregue: desconta o filamento dos rolos, se ainda não tinha descontado.
@@ -463,6 +475,21 @@ $("histList").addEventListener("change", (e) => {
 });
 $("histList").addEventListener("click", (e) => {
   const a = e.target.closest("[data-abrir]"), x = e.target.closest("[data-excluir]"), d = e.target.closest("[data-dup]");
+  const rf = e.target.closest("[data-refazer]"), faz = e.target.closest("[data-rfaz]");
+  if (rf) { refazendo = refazendo === rf.dataset.refazer ? "" : rf.dataset.refazer; drawHistList(); return; }
+  if (faz) {
+    // Peça refeita: desconta o filamento de novo; reduzir o lucro só se a pessoa escolher.
+    const i = st.hist.findIndex((h) => h.id === refazendo), campo0 = faz.closest(".item").querySelector("[data-rq]");
+    if (faz.dataset.rfaz !== "cancelar" && i >= 0) {
+      const res = reimprimir(st.rolos, st.hist[i], campo0 ? campo0.value : 1, faz.dataset.rfaz === "lucro");
+      if (!res) { campo0.focus(); return; }
+      const antes = Object.fromEntries(st.rolos.map((r) => [r.id, r.resto]));
+      st.rolos = res.rolos; st.rolos.forEach((r) => { if (r.resto !== antes[r.id]) toca(r); });
+      st.hist[i] = toca(res.pedido);
+      drawFils(); render();
+    }
+    refazendo = ""; drawHistList(); return;
+  }
   if (d) {
     // Duplicar: novo pedido como orçamento, com o preço sugerido recalculado pelos valores de hoje.
     const it = st.hist.find((h) => h.id === d.dataset.dup); if (!it || !it.snap) return;
@@ -499,7 +526,7 @@ function drawResumo() {
     ? `<tr><th>Mês</th><th>Pedidos</th><th>Vendido</th><th>Lucro</th></tr>` +
       meses.map((m) => `<tr><td>${esc(mesBr(m.mes))}</td><td>${m.pedidos}</td><td>${brl(m.receita)}</td><td>${brl(m.lucro)}</td></tr>`).join("") +
       `<tr class="tot"><td>Total</td><td>${total.pedidos}</td><td>${brl(total.receita)}</td><td>${brl(total.lucro)}</td></tr>`
-    : `<tr><td style="border:0">Nenhuma venda ainda. Um pedido entra no resumo quando passa de “Orçado” para “Aprovado” em diante, ou quando é marcado como pago.</td></tr>`;
+    : `<tr><td style="border:0">Nenhuma venda ainda. Um pedido entra no resumo quando passa de “Orçado” para “Aprovado” em diante.</td></tr>`;
 }
 
 // ---------- Filamentos ----------

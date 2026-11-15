@@ -266,7 +266,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     <label for="pedStatus">Situação</label>
     <select id="pedStatus"></select>
     <label class="chk"><input type="checkbox" id="pedPago"> Pago</label>
-    <p class="hint">Para sair de “Orçado”, cada filamento precisa ser um rolo cadastrado. O pagamento é marcado à parte e pode vir antes da produção. O filamento é descontado dos rolos uma única vez, quando o pedido passa a “Pronto” ou “Entregue”.</p>
+    <p class="hint">Fora de “Orçado”, cada filamento precisa ser um rolo cadastrado. O pagamento é marcado à parte, a partir de “Aprovado”, e pode vir antes da produção. O filamento é descontado dos rolos uma única vez, quando o pedido passa a “Pronto” ou “Entregue”; para uma peça com defeito, use “Refazer peça” na lista de pedidos.</p>
     <p class="hint" id="editBox" hidden></p>
     <div class="acts">
       <button class="pri" id="salvar" type="button">Salvar pedido</button>
@@ -351,7 +351,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
   <section class="card">
     <p class="h">Por mês</p>
     <table id="rsTab"></table>
-    <p class="hint">Entram os pedidos aprovados em diante (em produção, prontos e entregues) e os que já foram pagos; orçamentos não aprovados e não pagos ficam de fora. “A receber” soma as vendas ainda não marcadas como pagas.</p>
+    <p class="hint">Entram os pedidos aprovados em diante (em produção, prontos e entregues); orçamentos ficam de fora. “A receber” soma as vendas ainda não marcadas como pagas. O lucro já desconta as peças refeitas que você escolheu lançar no pedido.</p>
   </section>
 </div>
 

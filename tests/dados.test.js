@@ -407,7 +407,7 @@ test("duplicarRolo: copia os dados, com novo id, rolo cheio e sem a marca de alt
 });
 
 // ---------- Situação "Pronto", pagamento à parte e consumo de estoque ----------
-import { CONSOME, statusDe, pagoDe, vendido, atualizarPedido, consumirEstoque } from "../dados.js";
+import { CONSOME, statusDe, pagoDe, vendido, atualizarPedido, consumirEstoque, filamentosDefinidos, verificarSituacao, reimprimir } from "../dados.js";
 
 test("fluxo: Pronto fica entre Em produção e Entregue; Pago não é mais situação", () => {
   const s = STATUS.map(([x]) => x);
@@ -428,29 +428,35 @@ test("registro antigo com situação 'pago' conta como entregue e pago", () => {
   assert.equal(pagoDe(undefined), false);
 });
 
-test("pagamento independe da situação: pedido pode ser pago antes de produzir", () => {
-  const e = entradaHistorico(st, calcular(st), { id: "x", data: "2026-11-14T12:00:00.000Z", nome: "Vaso", status: "orcado", pago: true });
-  assert.equal(e.status, "orcado");
+test("pagamento: pode vir antes da produção, a partir de Aprovado", () => {
+  const e = entradaHistorico(st, calcular(st), { id: "x", data: "2026-11-14T12:00:00.000Z", nome: "Vaso", status: "aprovado", pago: true });
+  assert.equal(e.status, "aprovado");
   assert.equal(e.pago, true);
   assert.equal(e.consumido, false);
-  assert.equal(vendido(e), true); // pago conta como venda mesmo ainda orçado
-  assert.equal(vendido({ status: "orcado", pago: false }), false);
+  assert.equal(vendido(e), true);
+});
+
+test("pagamento: pedido em Orçado nunca está pago, e não conta como venda", () => {
+  const e = entradaHistorico(st, calcular(st), { id: "x", data: "2026-11-14T12:00:00.000Z", nome: "Vaso", status: "orcado", pago: true });
+  assert.equal(e.pago, false);
+  assert.equal(pagoDe({ status: "orcado", pago: true }), false);
+  assert.equal(vendido({ status: "orcado", pago: true }), false);
   assert.equal(vendido({ status: "pronto" }), true);
 });
 
 test("filtrarHistorico: por pagamento e pela situação Pronto", () => {
-  const l = [ped({ id: "1", status: "pronto", pago: true }), ped({ id: "2", status: "pronto", pago: false }), ped({ id: "3", status: "orcado", pago: true }), ped({ id: "4", status: "pago", pago: undefined })];
-  assert.equal(ids(filtrarHistorico(l, { pago: "sim" })), "134");
-  assert.equal(ids(filtrarHistorico(l, { pago: "nao" })), "2");
+  const l = [ped({ id: "1", status: "pronto", pago: true }), ped({ id: "2", status: "pronto", pago: false }), ped({ id: "3", status: "orcado", pago: false }), ped({ id: "4", status: "pago", pago: undefined })];
+  assert.equal(ids(filtrarHistorico(l, { pago: "sim" })), "14");
+  assert.equal(ids(filtrarHistorico(l, { pago: "nao" })), "23");
   assert.equal(ids(filtrarHistorico(l, { status: "pronto" })), "12");
   assert.equal(ids(filtrarHistorico(l, { status: "pronto", pago: "nao" })), "2");
   assert.equal(ids(filtrarHistorico(l, { status: "entregue" })), "4");
 });
 
-test("resumoVendas: a receber são as vendas não pagas; pago antecipado entra como venda recebida", () => {
+test("resumoVendas: só de Aprovado em diante; a receber são as vendas não pagas", () => {
   const l = [
     ped({ id: "1", status: "pronto", pago: false, preco: 30, un: 20 }),
-    ped({ id: "2", status: "orcado", pago: true, preco: 50, un: 30 }),
+    ped({ id: "2", status: "aprovado", pago: true, preco: 50, un: 30 }),
     ped({ id: "3", status: "entregue", pago: true, preco: 10, un: 4 }),
     ped({ id: "4", status: "orcado", pago: false, preco: 999, un: 1 }),
   ];
@@ -461,7 +467,7 @@ test("resumoVendas: a receber são as vendas não pagas; pago antecipado entra c
 });
 
 const rolosC = [{ id: "a", nome: "PLA Preto", mat: "PLA", peso: 1000, preco: 120, resto: 500 }, { id: "b", nome: "PETG", mat: "PETG", peso: 1000, preco: 130, resto: 1000 }];
-const pedC = (o) => ({ id: "p", status: "producao", consumido: false, qtd: 1, vendidas: 1, snap: { fils: [{ rolo: "a", g: "80" }, { rolo: "", g: "20" }] }, ...o });
+const pedC = (o) => ({ id: "p", status: "producao", consumido: false, qtd: 1, vendidas: 1, un: 12, snap: { fils: [{ rolo: "a", g: "80" }, { rolo: "", g: "20" }] }, ...o });
 
 test("consumirEstoque: só desconta a partir de Pronto", () => {
   for (const s of ["orcado", "aprovado", "producao"]) {
@@ -500,14 +506,19 @@ test("consumirEstoque: pedido sem rolo cadastrado marca como consumido sem mexer
   assert.equal(consumirEstoque(rolosC, undefined).consumiu, false);
 });
 
-test("atualizarPedido: migra situação 'pago' e marca o estoque dos pedidos antigos", () => {
-  const comRolo = atualizarPedido({ id: "1", status: "pago", snap: { fils: [{ rolo: "a", g: "10" }] } });
-  assert.deepEqual([comRolo.status, comRolo.pago, comRolo.consumido], ["entregue", true, true]);
-  const semRolo = atualizarPedido({ id: "2", status: "producao", snap: { fils: [{ rolo: "", g: "10" }] } });
-  assert.deepEqual([semRolo.status, semRolo.pago, semRolo.consumido], ["producao", false, false]);
-  const novo = atualizarPedido({ id: "3", status: "pronto", pago: true, consumido: false, snap: { fils: [{ rolo: "a", g: "10" }] } });
-  assert.deepEqual([novo.status, novo.pago, novo.consumido], ["pronto", true, false]); // marca explícita é respeitada
-  assert.equal(atualizarPedido({ id: "4" }).consumido, false);
+test("atualizarPedido: pedido antigo conta como ainda não descontado e desconta ao virar Pronto", () => {
+  const antigo = atualizarPedido({ id: "1", status: "producao", qtd: 1, vendidas: 1, snap: { fils: [{ rolo: "a", g: "10" }] } });
+  assert.deepEqual([antigo.status, antigo.pago, antigo.consumido], ["producao", false, false]);
+  assert.equal(consumirEstoque(rolosC, { ...antigo, status: "pronto" }).rolos[0].resto, 490);
+});
+
+test("atualizarPedido: migra a situação 'pago', respeita marcas explícitas e tira o pago de um Orçado", () => {
+  const pago = atualizarPedido({ id: "1", status: "pago" });
+  assert.deepEqual([pago.status, pago.pago, pago.consumido], ["entregue", true, false]);
+  const novo = atualizarPedido({ id: "3", status: "pronto", pago: true, consumido: true });
+  assert.deepEqual([novo.status, novo.pago, novo.consumido], ["pronto", true, true]);
+  assert.equal(atualizarPedido({ id: "4", status: "orcado", pago: true }).pago, false);
+  assert.equal(atualizarPedido({ id: "5" }).consumido, false);
 });
 
 test("atualizarPedido: é estável — aplicar de novo não muda nada", () => {
@@ -515,8 +526,7 @@ test("atualizarPedido: é estável — aplicar de novo não muda nada", () => {
   assert.deepEqual(atualizarPedido(a), a);
 });
 
-// ---------- Sair de "Orçado" exige rolos cadastrados ----------
-import { filamentosDefinidos, podeMudarSituacao } from "../dados.js";
+// ---------- Regras de situação: rolos cadastrados e pagamento ----------
 
 const comRolo = [{ rolo: "a", g: "80" }], semRolo = [{ rolo: "", g: "80" }], misto = [{ rolo: "a", g: "80" }, { rolo: "", g: "5" }];
 
@@ -536,18 +546,65 @@ test("filamentosDefinidos: linha sem peso é ignorada; sem nenhum filamento não
   assert.equal(filamentosDefinidos(comRolo, undefined), false);
 });
 
-test("podeMudarSituacao: sair de Orçado exige rolos cadastrados", () => {
+test("verificarSituacao: fora de Orçado, sempre exige rolos cadastrados", () => {
   for (const para of ["aprovado", "producao", "pronto", "entregue"]) {
-    assert.equal(podeMudarSituacao("orcado", para, semRolo, rolosC), false, para);
-    assert.equal(podeMudarSituacao("orcado", para, misto, rolosC), false, para);
-    assert.equal(podeMudarSituacao("orcado", para, comRolo, rolosC), true, para);
+    assert.equal(verificarSituacao({ para, fils: semRolo, rolos: rolosC }), "rolo", para);
+    assert.equal(verificarSituacao({ para, fils: misto, rolos: rolosC }), "rolo", para);
+    assert.equal(verificarSituacao({ para, fils: comRolo, rolos: rolosC }), "", para);
+    assert.equal(verificarSituacao({ para, fils: comRolo, rolos: rolosC, pago: true }), "", para);
   }
-  assert.equal(podeMudarSituacao(undefined, "aprovado", semRolo, rolosC), false); // pedido novo parte de Orçado
 });
 
-test("podeMudarSituacao: ficar ou voltar para Orçado, e mudar entre as outras situações, é sempre permitido", () => {
-  assert.equal(podeMudarSituacao("orcado", "orcado", semRolo, rolosC), true);
-  assert.equal(podeMudarSituacao("producao", "orcado", semRolo, rolosC), true);
-  assert.equal(podeMudarSituacao("producao", "pronto", semRolo, rolosC), true); // já tinha saído do orçamento
-  assert.equal(podeMudarSituacao("pago", "pronto", semRolo, rolosC), true);     // registro antigo
+test("verificarSituacao: Orçado não exige rolo, mas um pedido pago não volta para Orçado", () => {
+  assert.equal(verificarSituacao({ para: "orcado", fils: semRolo, rolos: rolosC }), "");
+  assert.equal(verificarSituacao({ para: "orcado", fils: semRolo, rolos: rolosC, pago: false }), "");
+  assert.equal(verificarSituacao({ para: "orcado", fils: comRolo, rolos: rolosC, pago: true }), "pago");
+  assert.equal(verificarSituacao({ para: undefined, fils: semRolo, rolos: rolosC }), ""); // sem situação = Orçado
+});
+
+// ---------- Peças refeitas (contabilizar o filamento de novo) ----------
+
+test("reimprimir: desconta o filamento das peças refeitas e registra no pedido", () => {
+  const p = pedC({ status: "pronto", consumido: true });
+  const r = reimprimir(rolosC, p, "2", false);
+  assert.equal(r.rolos[0].resto, 340); // 500 − 2 × 80
+  assert.equal(r.pedido.refeitas, 2);
+  assert.equal(r.pedido.custoExtra, 0);
+  assert.equal(rolosC[0].resto, 500);
+  assert.equal(p.refeitas, undefined); // não altera o original
+});
+
+test("reimprimir: só reduz o lucro quando pedido, e soma a cada vez", () => {
+  const p = pedC({ status: "entregue", consumido: true, preco: 30, vendidas: 1, peso: 100, taxa: 0 });
+  perto(valoresPedido(p).lucro, 18);
+  const r1 = reimprimir(rolosC, p, 1, true);
+  assert.equal(r1.pedido.custoExtra, 12);
+  perto(valoresPedido(r1.pedido).lucro, 6);
+  perto(valoresPedido(r1.pedido).receita, 30); // a receita não muda
+  const r2 = reimprimir(r1.rolos, r1.pedido, 1, false);
+  assert.deepEqual([r2.pedido.refeitas, r2.pedido.custoExtra], [2, 12]);
+  const r3 = reimprimir(r2.rolos, r2.pedido, 2, true);
+  assert.deepEqual([r3.pedido.refeitas, r3.pedido.custoExtra], [4, 36]);
+  assert.equal(r3.rolos[0].resto, 180);
+});
+
+test("reimprimir: considera as peças por mesa e ignora quantidade inválida", () => {
+  assert.equal(reimprimir(rolosC, pedC({ qtd: 4 }), 1, false).rolos[0].resto, 480); // 80 g para 4 peças → 20 g por peça
+  assert.equal(reimprimir(rolosC, pedC({}), 0, true), null);
+  assert.equal(reimprimir(rolosC, pedC({}), "", true), null);
+  assert.equal(reimprimir(rolosC, pedC({}), "abc", true), null);
+  assert.equal(reimprimir(rolosC, undefined, 1, true), null);
+});
+
+test("entradaHistorico: ao editar, mantém as peças refeitas e o custo extra do pedido", () => {
+  const e = entradaHistorico(st, calcular(st), { id: "x", data: "x", nome: "Vaso", status: "pronto", consumido: true, refeitas: 3, custoExtra: 18 });
+  assert.deepEqual([e.consumido, e.refeitas, e.custoExtra], [true, 3, 18]);
+  const novo = entradaHistorico(st, calcular(st), { id: "y", data: "x", nome: "Vaso" });
+  assert.deepEqual([novo.refeitas, novo.custoExtra], [0, 0]);
+});
+
+test("resumoVendas: o custo das peças refeitas reduz o lucro do mês", () => {
+  const l = [ped({ id: "1", status: "entregue", pago: true, preco: 30, un: 20, custoExtra: 20 })];
+  perto(resumoVendas(l).total.lucro, -10);
+  perto(resumoVendas(l).total.receita, 30);
 });

@@ -1,7 +1,7 @@
 // Service worker: guarda o app para funcionar offline.
 // Com internet, busca sempre a versão mais nova dos arquivos; sem internet (ou com a rede lenta), usa a cópia guardada.
 // Ao publicar uma versão nova, mude o número abaixo (e VERSAO no config.js).
-const CACHE = "ligalab-calc-v15";
+const CACHE = "ligalab-calc-v16";
 const ARQUIVOS = [
   "./",
   "index.html",

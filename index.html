@@ -67,6 +67,7 @@ input:focus,select:focus,textarea:focus,button:focus-visible,summary:focus-visib
 .fld input{padding-right:48px}
 .fil{display:grid;grid-template-columns:1.3fr .9fr 1fr 44px;gap:8px;margin-bottom:8px;align-items:end}
 .fil label{font-size:.68rem}
+@media(max-width:560px){.fil{grid-template-columns:1fr 1fr 44px}.fil>div:first-child{grid-column:1/-1}}
 button,.btn{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);min-height:46px;padding:0 14px;font-weight:500;text-decoration:none;display:inline-grid;place-items:center;text-align:center}
 button:disabled{opacity:.4;cursor:default}
 .del{padding:0;font-size:1.2rem;color:var(--mut)}

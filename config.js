@@ -1,7 +1,7 @@
 // Configuração do app.
 
 // Versão mostrada no rodapé. Aumente junto com CACHE no sw.js a cada publicação.
-export const VERSAO = "14";
+export const VERSAO = "15";
 
 // ID do cliente OAuth (Google Cloud → Google Auth Platform → Clientes → aplicativo da Web).
 // É um valor público, não um segredo. Enquanto estiver vazio, a sincronização fica desligada.

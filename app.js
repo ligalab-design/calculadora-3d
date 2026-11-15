@@ -9,13 +9,13 @@ import { CFG_KEYS, documento, aplicar } from "./sync.js";
 import { criarNuvem } from "./nuvem.js";
 import { GOOGLE_CLIENT_ID, VERSAO } from "./config.js";
 
-const PRESETS = { PLA: 130, PETG: 130, ASA: 160, TPU: 170, Outro: 150 };
+const PRESETS = { PLA: 130, PETG: 200, ASA: 300, TPU: 250, Outro: 150 };
 const DEF = {
   h: "2", m: "30", qtd: "1", falha: "5", extra: "0", mo: "30", vh: "30", lucro: "100", taxa: "0", arred: "nenhum",
-  w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", dims: "", cores: "", v: 4,
+  w: "150", kwh: "1,00", pimp: "10000", vida: "5000", manut: "0,50", precoFinal: "", nomePeca: "", dims: "", cores: "", v: 5,
   cli: "", cliNovo: "", pedStatus: "orcado", pedPago: false, editando: "", cfgMod: 0, apagados: {},
   // Padrões aplicados a cada novo pedido (e ao duplicar). Editáveis na aba Calcular.
-  padrao: { lucro: "100", mo: "30", precos: { PLA: "130", PETG: "130", ASA: "160", TPU: "170", Outro: "150" } },
+  padrao: { lucro: "100", mo: "30", precos: { PLA: "130", PETG: "200", ASA: "300", TPU: "250", Outro: "150" } },
   fils: [{ rolo: "", mat: "PLA", g: "80", kg: "130" }], rolos: [], hist: [], clientes: [],
   orc: { qtd: "", prazo: "5", validade: "7", obs: "" },
 };
@@ -51,7 +51,13 @@ if (!(saved.v >= 3)) {
 }
 // v4: pedidos que ainda não chegaram a Pronto contam como não descontados dos rolos (descontam ao virar Pronto).
 if (!(saved.v >= 4) && Array.isArray(st.hist)) st.hist.forEach((h) => { if (h && h.consumido === true && !CONSOME.includes(statusDe(h))) h.consumido = false; });
-st.v = 4;
+// v5: novos preços padrão de PETG, ASA e TPU valem também para quem já tinha padrões salvos.
+if (!(saved.v >= 5)) {
+  const pd = st.padrao && typeof st.padrao === "object" ? st.padrao : (st.padrao = clone(DEF.padrao));
+  pd.precos = Object.assign({}, pd.precos && typeof pd.precos === "object" ? pd.precos : {}, { PETG: "200", ASA: "300", TPU: "250" });
+  st.cfgMod = Date.now();
+}
+st.v = 5;
 normalizar();
 
 function normalizar() {

@@ -79,10 +79,53 @@ export function novoCliente({ nome, contato }, id) {
 
 // ---------- Pedidos (histórico) ----------
 
-/** Situações de um pedido, na ordem do fluxo. */
-export const STATUS = [["orcado", "Orçado"], ["aprovado", "Aprovado"], ["producao", "Em produção"], ["entregue", "Entregue"], ["pago", "Pago"]];
-/** Situações que contam como venda (orçamento ainda não aprovado não conta). */
-export const VENDIDO = ["aprovado", "producao", "entregue", "pago"];
+/** Situações de um pedido, na ordem do fluxo. O pagamento é uma marca à parte (pago / não pago). */
+export const STATUS = [["orcado", "Orçado"], ["aprovado", "Aprovado"], ["producao", "Em produção"], ["pronto", "Pronto"], ["entregue", "Entregue"]];
+/** Situações que contam como venda (orçamento ainda não aprovado não conta, a menos que já esteja pago). */
+export const VENDIDO = ["aprovado", "producao", "pronto", "entregue"];
+/** Situações a partir das quais o filamento do pedido é descontado dos rolos. */
+export const CONSOME = ["pronto", "entregue"];
+
+/** Situação do pedido. Registros antigos com a situação "pago" contam como entregues. */
+export const statusDe = (e) => { const s = e && e.status; return s === "pago" ? "entregue" : STATUS.some(([x]) => x === s) ? s : "orcado"; };
+/** O pedido está pago? Registros antigos com a situação "pago" contam como pagos. */
+export const pagoDe = (e) => !!e && (e.pago === true || (e.pago === undefined && e.status === "pago"));
+/** Conta como venda: aprovado em diante, ou já pago. */
+export const vendido = (e) => VENDIDO.includes(statusDe(e)) || pagoDe(e);
+
+/** Todos os filamentos com peso são rolos cadastrados que ainda existem (e há pelo menos um). */
+export function filamentosDefinidos(fils, rolos) {
+  const usados = (Array.isArray(fils) ? fils : []).filter((f) => f && num(f.g) > 0);
+  return usados.length > 0 && usados.every((f) => f.rolo && (rolos || []).some((r) => r.id === f.rolo));
+}
+
+/**
+ * Um pedido só sai de "Orçado" se todos os filamentos forem rolos cadastrados.
+ * Voltar para "Orçado" e mudar entre as outras situações é sempre permitido.
+ */
+export function podeMudarSituacao(de, para, fils, rolos) {
+  return statusDe({ status: para }) === "orcado" || statusDe({ status: de }) !== "orcado" || filamentosDefinidos(fils, rolos);
+}
+
+/**
+ * Traz um pedido antigo para o formato atual: situação válida, marca de pago e marca de estoque descontado.
+ * Pedidos de antes desta marca que usam rolos contam como já descontados (era o padrão ao salvar).
+ */
+export function atualizarPedido(e) {
+  const usaRolo = !!(e && e.snap && Array.isArray(e.snap.fils) && e.snap.fils.some((f) => f && f.rolo));
+  return { ...e, status: statusDe(e), pago: pagoDe(e), consumido: typeof e.consumido === "boolean" ? e.consumido : usaRolo };
+}
+
+/**
+ * Desconta dos rolos o filamento de um pedido Pronto ou Entregue — uma única vez.
+ * Devolve { rolos, consumiu }; quem chama marca o pedido como consumido quando consumiu for true.
+ */
+export function consumirEstoque(rolos, pedido) {
+  if (!pedido || pedido.consumido || !CONSOME.includes(statusDe(pedido))) return { rolos, consumiu: false };
+  const qtdMesa = Math.max(1, Math.round(num(pedido.qtd)) || 1);
+  const pecas = Math.max(1, Math.round(num(pedido.vendidas)) || qtdMesa);
+  return { rolos: baixarEstoque(rolos, (pedido.snap && pedido.snap.fils) || [], pecas / qtdMesa), consumiu: true };
+}
 
 const diaDe = (e) => String(e.dia || e.data || "").slice(0, 10);
 const semAcento = (t) => String(t ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -103,13 +146,15 @@ export function valoresPedido(e) {
 /**
  * Filtra pedidos. Todos os filtros são opcionais:
  * texto (nome da peça ou do cliente, sem diferenciar acentos), status, cliente (id),
- * de / ate (datas "AAAA-MM-DD", inclusive).
+ * pago ("sim" ou "nao"), de / ate (datas "AAAA-MM-DD", inclusive).
  */
-export function filtrarHistorico(hist, { texto, status, cliente, de, ate } = {}) {
+export function filtrarHistorico(hist, { texto, status, cliente, pago, de, ate } = {}) {
   const t = semAcento(texto).trim();
   return (hist || []).filter((e) => {
     if (t && !semAcento(e.nome).includes(t) && !semAcento(e.clienteNome).includes(t)) return false;
-    if (status && (e.status || "orcado") !== status) return false;
+    if (status && statusDe(e) !== status) return false;
+    if (pago === "sim" && !pagoDe(e)) return false;
+    if (pago === "nao" && pagoDe(e)) return false;
     if (cliente && e.cliente !== cliente) return false;
     const d = diaDe(e);
     if (de && d < de) return false;
@@ -118,16 +163,16 @@ export function filtrarHistorico(hist, { texto, status, cliente, de, ate } = {})
   });
 }
 
-/** Resumo de vendas por mês (mais recente primeiro) e no total. Só conta pedidos aprovados em diante. */
+/** Resumo de vendas por mês (mais recente primeiro) e no total. Conta pedidos aprovados em diante e os já pagos. */
 export function resumoVendas(hist) {
   const zero = () => ({ pedidos: 0, pecas: 0, receita: 0, lucro: 0, filamento: 0, aReceber: 0 });
   const meses = {}, total = zero();
   for (const e of hist || []) {
-    if (!VENDIDO.includes(e.status)) continue;
+    if (!vendido(e)) continue;
     const v = valoresPedido(e), mes = diaDe(e).slice(0, 7);
     for (const alvo of [meses[mes] || (meses[mes] = { mes, ...zero() }), total]) {
       alvo.pedidos += 1; alvo.pecas += v.pecas; alvo.receita += v.receita; alvo.lucro += v.lucro; alvo.filamento += v.filamento;
-      if (e.status !== "pago") alvo.aReceber += v.receita;
+      if (!pagoDe(e)) alvo.aReceber += v.receita;
     }
   }
   return { meses: Object.values(meses).sort((a, b) => (a.mes < b.mes ? 1 : -1)), total };
@@ -138,7 +183,7 @@ export function resumoVendas(hist) {
  * Monta o registro de um pedido. `r` é o resultado de calcular(st).
  * `vendidas` é a quantidade do pedido; `preco` e `un` são por peça e, se omitidos, vêm de `r`.
  */
-export function entradaHistorico(st, r, { id, data, dia, nome, cliente, clienteNome, status, vendidas, preco, un }) {
+export function entradaHistorico(st, r, { id, data, dia, nome, cliente, clienteNome, status, pago, consumido, vendidas, preco, un }) {
   const snap = {};
   for (const k of PECA_KEYS) if (st[k] !== undefined) snap[k] = copia(st[k]);
   return {
@@ -148,7 +193,9 @@ export function entradaHistorico(st, r, { id, data, dia, nome, cliente, clienteN
     nome: String(nome || "").trim() || "Peça sem nome",
     cliente: cliente || "",
     clienteNome: String(clienteNome || "").trim(),
-    status: STATUS.some(([s]) => s === status) ? status : "orcado",
+    status: statusDe({ status }),
+    pago: pagoDe({ status, pago }),
+    consumido: consumido === true,
     qtd: r.qtd,
     vendidas: Math.max(1, Math.round(num(vendidas)) || r.qtd),
     peso: r.peso,

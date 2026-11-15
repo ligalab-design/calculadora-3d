@@ -265,7 +265,8 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     <div id="cliNovoBox" style="margin-bottom:10px" hidden><label for="cliNovo">Nome do novo cliente</label><input id="cliNovo" autocomplete="off"></div>
     <label for="pedStatus">Situação</label>
     <select id="pedStatus"></select>
-    <label class="chk" id="baixarBox" hidden><input type="checkbox" id="baixar" checked> Descontar o filamento do estoque ao salvar</label>
+    <label class="chk"><input type="checkbox" id="pedPago"> Pago</label>
+    <p class="hint">Para sair de “Orçado”, cada filamento precisa ser um rolo cadastrado. O pagamento é marcado à parte e pode vir antes da produção. O filamento é descontado dos rolos uma única vez, quando o pedido passa a “Pronto” ou “Entregue”.</p>
     <p class="hint" id="editBox" hidden></p>
     <div class="acts">
       <button class="pri" id="salvar" type="button">Salvar pedido</button>
@@ -315,8 +316,11 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
   <section class="card">
     <p class="h" id="histTit">Pedidos</p>
     <input id="fTexto" type="search" placeholder="Buscar por peça ou cliente" autocomplete="off">
-    <div class="row three" style="margin:10px 0 0">
+    <div class="row" style="margin:10px 0 0">
       <div><label for="fStatus">Situação</label><select id="fStatus"></select></div>
+      <div><label for="fPago">Pagamento</label><select id="fPago"></select></div>
+    </div>
+    <div class="row" style="margin:10px 0 0">
       <div><label for="fPeriodo">Período</label><select id="fPeriodo"></select></div>
       <div><label for="fCliente">Cliente</label><select id="fCliente"></select></div>
     </div>
@@ -347,7 +351,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
   <section class="card">
     <p class="h">Por mês</p>
     <table id="rsTab"></table>
-    <p class="hint">Entram os pedidos aprovados, em produção, entregues e pagos; orçamentos ainda não aprovados ficam de fora. “A receber” soma os que ainda não estão como pagos.</p>
+    <p class="hint">Entram os pedidos aprovados em diante (em produção, prontos e entregues) e os que já foram pagos; orçamentos não aprovados e não pagos ficam de fora. “A receber” soma as vendas ainda não marcadas como pagas.</p>
   </section>
 </div>
 
@@ -377,7 +381,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
         <button class="pri" id="rAdd" type="button">Cadastrar</button>
         <button id="rCancel" type="button" hidden>Cancelar</button>
       </div>
-      <p class="hint">Para cadastrar um rolo parecido com outro, use “Duplicar” na lista e mude só o que for diferente. O preço por kg é calculado pelo que você pagou. Ao salvar um pedido, o peso usado é descontado do rolo.</p>
+      <p class="hint">Para cadastrar um rolo parecido com outro, use “Duplicar” na lista e mude só o que for diferente. O preço por kg é calculado pelo que você pagou. O peso usado é descontado do rolo quando o pedido passa a “Pronto” ou “Entregue”, uma única vez.</p>
     </section>
   </div>
 </div>

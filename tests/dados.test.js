@@ -180,7 +180,7 @@ test("novoCliente: limpa espaços e usa nome padrão", () => {
 });
 
 test("STATUS: fluxo completo, e orçado não conta como venda", () => {
-  assert.deepEqual(STATUS.map(([s]) => s), ["orcado", "aprovado", "producao", "entregue", "pago"]);
+  assert.deepEqual(STATUS.map(([s]) => s), ["orcado", "aprovado", "producao", "pronto", "entregue"]);
   assert.equal(VENDIDO.includes("orcado"), false);
   assert.equal(VENDIDO.length, 4);
 });
@@ -265,15 +265,15 @@ test("filtrarHistorico: por situação, cliente e período (inclusive nas pontas
 });
 
 test("filtrarHistorico: filtros combinados", () => {
-  assert.equal(ids(filtrarHistorico(hist, { cliente: "c1", status: "pago", texto: "vaso" })), "1");
-  assert.equal(ids(filtrarHistorico(hist, { cliente: "c1", status: "entregue" })), "");
+  assert.equal(ids(filtrarHistorico(hist, { cliente: "c1", status: "entregue", pago: "sim", texto: "vaso" })), "1");
+  assert.equal(ids(filtrarHistorico(hist, { cliente: "c1", status: "producao" })), "");
 });
 
 test("filtrarHistorico: registro antigo sem situação conta como orçado e usa a data ISO", () => {
   const antigo = [{ id: "9", nome: "Antiga", data: "2026-09-03T15:00:00.000Z" }];
   assert.equal(ids(filtrarHistorico(antigo, { status: "orcado" })), "9");
   assert.equal(ids(filtrarHistorico(antigo, { de: "2026-09-01", ate: "2026-09-30" })), "9");
-  assert.equal(ids(filtrarHistorico(antigo, { status: "pago" })), "");
+  assert.equal(ids(filtrarHistorico(antigo, { status: "entregue" })), "");
 });
 
 test("resumoVendas: soma por mês, mais recente primeiro, sem contar orçados", () => {
@@ -404,4 +404,150 @@ test("duplicarRolo: copia os dados, com novo id, rolo cheio e sem a marca de alt
   assert.deepEqual(r, { id: "b", nome: "PLA Preto", mat: "PLA", peso: 1000, preco: 120, resto: 1000 });
   assert.equal(roloBase.id, "a");
   assert.equal(roloBase.resto, 300);
+});
+
+// ---------- Situação "Pronto", pagamento à parte e consumo de estoque ----------
+import { CONSOME, statusDe, pagoDe, vendido, atualizarPedido, consumirEstoque } from "../dados.js";
+
+test("fluxo: Pronto fica entre Em produção e Entregue; Pago não é mais situação", () => {
+  const s = STATUS.map(([x]) => x);
+  assert.equal(s.indexOf("pronto"), s.indexOf("producao") + 1);
+  assert.equal(s.indexOf("entregue"), s.indexOf("pronto") + 1);
+  assert.equal(s.includes("pago"), false);
+  assert.deepEqual(CONSOME, ["pronto", "entregue"]);
+});
+
+test("registro antigo com situação 'pago' conta como entregue e pago", () => {
+  const antigo = { status: "pago" };
+  assert.equal(statusDe(antigo), "entregue");
+  assert.equal(pagoDe(antigo), true);
+  assert.equal(statusDe({}), "orcado");
+  assert.equal(statusDe({ status: "xyz" }), "orcado");
+  assert.equal(pagoDe({ status: "entregue" }), false);
+  assert.equal(pagoDe({ status: "pago", pago: false }), false); // a marca explícita vale mais
+  assert.equal(pagoDe(undefined), false);
+});
+
+test("pagamento independe da situação: pedido pode ser pago antes de produzir", () => {
+  const e = entradaHistorico(st, calcular(st), { id: "x", data: "2026-11-14T12:00:00.000Z", nome: "Vaso", status: "orcado", pago: true });
+  assert.equal(e.status, "orcado");
+  assert.equal(e.pago, true);
+  assert.equal(e.consumido, false);
+  assert.equal(vendido(e), true); // pago conta como venda mesmo ainda orçado
+  assert.equal(vendido({ status: "orcado", pago: false }), false);
+  assert.equal(vendido({ status: "pronto" }), true);
+});
+
+test("filtrarHistorico: por pagamento e pela situação Pronto", () => {
+  const l = [ped({ id: "1", status: "pronto", pago: true }), ped({ id: "2", status: "pronto", pago: false }), ped({ id: "3", status: "orcado", pago: true }), ped({ id: "4", status: "pago", pago: undefined })];
+  assert.equal(ids(filtrarHistorico(l, { pago: "sim" })), "134");
+  assert.equal(ids(filtrarHistorico(l, { pago: "nao" })), "2");
+  assert.equal(ids(filtrarHistorico(l, { status: "pronto" })), "12");
+  assert.equal(ids(filtrarHistorico(l, { status: "pronto", pago: "nao" })), "2");
+  assert.equal(ids(filtrarHistorico(l, { status: "entregue" })), "4");
+});
+
+test("resumoVendas: a receber são as vendas não pagas; pago antecipado entra como venda recebida", () => {
+  const l = [
+    ped({ id: "1", status: "pronto", pago: false, preco: 30, un: 20 }),
+    ped({ id: "2", status: "orcado", pago: true, preco: 50, un: 30 }),
+    ped({ id: "3", status: "entregue", pago: true, preco: 10, un: 4 }),
+    ped({ id: "4", status: "orcado", pago: false, preco: 999, un: 1 }),
+  ];
+  const { total } = resumoVendas(l);
+  assert.equal(total.pedidos, 3);
+  perto(total.receita, 90);
+  perto(total.aReceber, 30);
+});
+
+const rolosC = [{ id: "a", nome: "PLA Preto", mat: "PLA", peso: 1000, preco: 120, resto: 500 }, { id: "b", nome: "PETG", mat: "PETG", peso: 1000, preco: 130, resto: 1000 }];
+const pedC = (o) => ({ id: "p", status: "producao", consumido: false, qtd: 1, vendidas: 1, snap: { fils: [{ rolo: "a", g: "80" }, { rolo: "", g: "20" }] }, ...o });
+
+test("consumirEstoque: só desconta a partir de Pronto", () => {
+  for (const s of ["orcado", "aprovado", "producao"]) {
+    const r = consumirEstoque(rolosC, pedC({ status: s }));
+    assert.equal(r.consumiu, false);
+    assert.equal(r.rolos, rolosC);
+  }
+  for (const s of ["pronto", "entregue"]) {
+    const r = consumirEstoque(rolosC, pedC({ status: s }));
+    assert.equal(r.consumiu, true);
+    assert.equal(r.rolos[0].resto, 420);
+    assert.equal(r.rolos[1].resto, 1000);
+  }
+  assert.equal(rolosC[0].resto, 500); // não altera a lista original
+});
+
+test("consumirEstoque: desconta uma única vez", () => {
+  const p = pedC({ status: "pronto" });
+  const r1 = consumirEstoque(rolosC, p);
+  p.consumido = true;
+  const r2 = consumirEstoque(r1.rolos, { ...p, status: "entregue" });
+  assert.equal(r2.consumiu, false);
+  assert.equal(r2.rolos[0].resto, 420);
+});
+
+test("consumirEstoque: multiplica pela quantidade do pedido (peças vendidas ÷ peças por mesa)", () => {
+  assert.equal(consumirEstoque(rolosC, pedC({ status: "pronto", qtd: 2, vendidas: 10 })).rolos[0].resto, 100);
+  assert.equal(consumirEstoque(rolosC, pedC({ status: "pronto", qtd: 1, vendidas: 20 })).rolos[0].resto, 0); // nunca negativo
+});
+
+test("consumirEstoque: pedido sem rolo cadastrado marca como consumido sem mexer nos rolos", () => {
+  const r = consumirEstoque(rolosC, pedC({ status: "entregue", snap: { fils: [{ rolo: "", g: "80" }] } }));
+  assert.equal(r.consumiu, true);
+  assert.deepEqual(r.rolos, rolosC);
+  assert.equal(consumirEstoque(rolosC, pedC({ status: "pronto", snap: undefined })).consumiu, true);
+  assert.equal(consumirEstoque(rolosC, undefined).consumiu, false);
+});
+
+test("atualizarPedido: migra situação 'pago' e marca o estoque dos pedidos antigos", () => {
+  const comRolo = atualizarPedido({ id: "1", status: "pago", snap: { fils: [{ rolo: "a", g: "10" }] } });
+  assert.deepEqual([comRolo.status, comRolo.pago, comRolo.consumido], ["entregue", true, true]);
+  const semRolo = atualizarPedido({ id: "2", status: "producao", snap: { fils: [{ rolo: "", g: "10" }] } });
+  assert.deepEqual([semRolo.status, semRolo.pago, semRolo.consumido], ["producao", false, false]);
+  const novo = atualizarPedido({ id: "3", status: "pronto", pago: true, consumido: false, snap: { fils: [{ rolo: "a", g: "10" }] } });
+  assert.deepEqual([novo.status, novo.pago, novo.consumido], ["pronto", true, false]); // marca explícita é respeitada
+  assert.equal(atualizarPedido({ id: "4" }).consumido, false);
+});
+
+test("atualizarPedido: é estável — aplicar de novo não muda nada", () => {
+  const a = atualizarPedido({ id: "1", status: "pago", snap: { fils: [{ rolo: "a", g: "10" }] } });
+  assert.deepEqual(atualizarPedido(a), a);
+});
+
+// ---------- Sair de "Orçado" exige rolos cadastrados ----------
+import { filamentosDefinidos, podeMudarSituacao } from "../dados.js";
+
+const comRolo = [{ rolo: "a", g: "80" }], semRolo = [{ rolo: "", g: "80" }], misto = [{ rolo: "a", g: "80" }, { rolo: "", g: "5" }];
+
+test("filamentosDefinidos: todos os filamentos com peso precisam ser rolos que existem", () => {
+  assert.equal(filamentosDefinidos(comRolo, rolosC), true);
+  assert.equal(filamentosDefinidos(semRolo, rolosC), false);
+  assert.equal(filamentosDefinidos(misto, rolosC), false);
+  assert.equal(filamentosDefinidos([{ rolo: "apagado", g: "80" }], rolosC), false);
+  assert.equal(filamentosDefinidos([{ rolo: "a", g: "80" }, { rolo: "b", g: "20" }], rolosC), true);
+});
+
+test("filamentosDefinidos: linha sem peso é ignorada; sem nenhum filamento não vale", () => {
+  assert.equal(filamentosDefinidos([{ rolo: "a", g: "80" }, { rolo: "", g: "" }], rolosC), true);
+  assert.equal(filamentosDefinidos([{ rolo: "", g: "0" }], rolosC), false);
+  assert.equal(filamentosDefinidos([], rolosC), false);
+  assert.equal(filamentosDefinidos(undefined, rolosC), false);
+  assert.equal(filamentosDefinidos(comRolo, undefined), false);
+});
+
+test("podeMudarSituacao: sair de Orçado exige rolos cadastrados", () => {
+  for (const para of ["aprovado", "producao", "pronto", "entregue"]) {
+    assert.equal(podeMudarSituacao("orcado", para, semRolo, rolosC), false, para);
+    assert.equal(podeMudarSituacao("orcado", para, misto, rolosC), false, para);
+    assert.equal(podeMudarSituacao("orcado", para, comRolo, rolosC), true, para);
+  }
+  assert.equal(podeMudarSituacao(undefined, "aprovado", semRolo, rolosC), false); // pedido novo parte de Orçado
+});
+
+test("podeMudarSituacao: ficar ou voltar para Orçado, e mudar entre as outras situações, é sempre permitido", () => {
+  assert.equal(podeMudarSituacao("orcado", "orcado", semRolo, rolosC), true);
+  assert.equal(podeMudarSituacao("producao", "orcado", semRolo, rolosC), true);
+  assert.equal(podeMudarSituacao("producao", "pronto", semRolo, rolosC), true); // já tinha saído do orçamento
+  assert.equal(podeMudarSituacao("pago", "pronto", semRolo, rolosC), true);     // registro antigo
 });

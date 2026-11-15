@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
 import { segundos, material, corNome, coresUsadas, textoDimensoes, lerGcode, lerSliceInfo, lerPlacaJson, ler3mf } from "../importar.js";
-import { listarZip, extrairTexto, extrairInicio } from "../zip.js";
+import { listarZip, extrairTexto, extrairInicio, extrairBytes } from "../zip.js";
 
 const semCor = (fils) => fils.map(({ mat, g }) => ({ mat, g }));
 
@@ -325,4 +325,29 @@ test("ler3mf: arquivo no formato real do Bambu Studio 2.x", async () => {
   assert.equal(r.objetos, 1);
   assert.equal(textoDimensoes(r.dims), "138 × 140 × 150 mm");
   assert.equal(r.aviso, "");
+});
+
+// ---------- Imagem da placa ----------
+
+const PNG_FALSO = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 3, 254, 255, 0, 128, 200, 7, 7, 7]);
+
+test("zip: extrairBytes devolve os bytes exatos, com e sem compressão", async () => {
+  const z = zip([["a.png", PNG_FALSO, true], ["b.png", Buffer.concat([PNG_FALSO, Buffer.alloc(5000, 9)])]]);
+  const [a, b] = listarZip(z);
+  assert.deepEqual(Buffer.from(await extrairBytes(z, a)), PNG_FALSO);
+  const grande = Buffer.from(await extrairBytes(z, b));
+  assert.equal(grande.length, PNG_FALSO.length + 5000);
+  assert.deepEqual(grande.subarray(0, PNG_FALSO.length), PNG_FALSO);
+});
+
+test("ler3mf: traz a miniatura da placa fatiada", async () => {
+  const r = await ler3mf(zip([["Metadata/slice_info.config", SLICE_REAL], ["Metadata/plate_1.png", PNG_FALSO, true], ["Metadata/plate_1_small.png", Buffer.from([1, 2, 3]), true], ["Metadata/top_1.png", Buffer.from([4]), true]]));
+  assert.equal(r.imagem.nome, "plate_1.png");
+  assert.equal(r.imagem.tipo, "image/png");
+  assert.deepEqual(Buffer.from(r.imagem.bytes), PNG_FALSO);
+});
+
+test("ler3mf: sem miniatura, a imagem vem vazia", async () => {
+  const r = await ler3mf(zip([["Metadata/slice_info.config", SLICE_REAL]]));
+  assert.equal(r.imagem, null);
 });

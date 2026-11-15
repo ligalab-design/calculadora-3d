@@ -26,6 +26,18 @@ export function listarZip(buffer) {
   return entradas;
 }
 
+/** Extrai uma entrada (devolvida por listarZip) como bytes — para imagens, por exemplo. */
+export async function extrairBytes(buffer, entrada) {
+  const dv = new DataView(buffer), p = entrada.local;
+  if (dv.getUint32(p, true) !== 0x04034b50) throw new Error("ZIP corrompido");
+  const inicio = p + 30 + dv.getUint16(p + 26, true) + dv.getUint16(p + 28, true);
+  const bytes = new Uint8Array(buffer, inicio, entrada.tamanho);
+  if (entrada.metodo === 0) return bytes.slice();
+  if (entrada.metodo !== 8) throw new Error("compressão não suportada");
+  const fluxo = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(fluxo).arrayBuffer());
+}
+
 /** Extrai uma entrada (devolvida por listarZip) como texto UTF-8. */
 export async function extrairTexto(buffer, entrada) {
   const dv = new DataView(buffer), p = entrada.local;

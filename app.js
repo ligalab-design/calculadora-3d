@@ -172,16 +172,90 @@ $("impFile").addEventListener("change", async () => {
   const dims = textoDimensoes(r.dims), cores = coresUsadas(r.fils).join(", ");
   st.dims = dims; st.cores = cores;
   carregarCampos();
-  // O orçamento já fica montado e aberto com os dados do arquivo.
+  // O orçamento já fica montado e aberto com os dados do arquivo, incluindo a imagem da peça.
+  const temImagem = await definirImagem(r.imagem ? new Blob([r.imagem.bytes], { type: r.imagem.tipo }) : null);
   $("orcBox").hidden = false; drawOrc();
   const peso = r.fils.reduce((t, f) => t + f.g, 0);
   const orc = dims && cores ? " Dimensões e cores foram para o orçamento; confira, porque a cor é estimada pela tonalidade."
     : cores ? " As cores foram para o orçamento (estimadas pela tonalidade); este arquivo não traz as dimensões, preencha à mão."
     : dims ? " As dimensões foram para o orçamento; preencha as cores à mão."
     : " Este arquivo não traz dimensões nem cores; preencha no orçamento.";
-  const varios = r.objetos > 1 ? ` Há ${r.objetos} objetos na placa; usei as medidas do maior.` : "";
+  const varios = (r.objetos > 1 ? ` Há ${r.objetos} objetos na placa; usei as medidas do maior.` : "") + (temImagem ? " A imagem da peça também está no orçamento." : "");
   msg($("impMsg"), `Importado de ${file.name}: ${[peso ? dec(peso) + " g" : "", r.segundos ? tempo(r.segundos / 3600) : ""].filter(Boolean).join(" e ")}. ${r.aviso || ""}${r.fils.length ? " Confira o preço por kg ou escolha o rolo." : " O arquivo não informa o peso; preencha à mão."}${orc}${varios}`);
 });
+
+// ---------- Imagem da peça para o cliente ----------
+let imagem = null; // { blob (JPEG), url } — só na memória desta sessão
+/**
+ * Prepara a imagem para envio: fundo claro no lugar da transparência, recorte em volta da peça
+ * (miniaturas do fatiador vêm com muita margem) e tamanho de até 1280 px, em JPEG.
+ */
+async function prepararImagem(origem) {
+  const bmp = await createImageBitmap(origem);
+  const esc0 = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * esc0)), h = Math.max(1, Math.round(bmp.height * esc0));
+  const c0 = document.createElement("canvas"); c0.width = w; c0.height = h;
+  const x0 = c0.getContext("2d", { willReadFrequently: true }); x0.drawImage(bmp, 0, 0, w, h);
+  // Área que não é transparente.
+  const d = x0.getImageData(0, 0, w, h).data;
+  let x1 = w, y1 = h, x2 = -1, y2 = -1, transparente = false;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (d[(y * w + x) * 4 + 3] > 8) { if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; if (y > y2) y2 = y; } else transparente = true;
+  }
+  const out = document.createElement("canvas"), o = out.getContext("2d");
+  if (transparente && x2 >= 0) {
+    // Miniatura com fundo transparente: quadrado em volta da peça, com 12% de margem.
+    const lado = Math.max(x2 - x1 + 1, y2 - y1 + 1) * 1.24, cx = (x1 + x2 + 1) / 2, cy = (y1 + y2 + 1) / 2;
+    const tam = Math.round(Math.min(1280, Math.max(640, lado))), k = tam / lado;
+    out.width = out.height = tam;
+    o.fillStyle = "#f8f3ef"; o.fillRect(0, 0, tam, tam); o.imageSmoothingQuality = "high";
+    o.drawImage(c0, (lado / 2 - cx) * k, (lado / 2 - cy) * k, w * k, h * k);
+  } else {
+    out.width = w; out.height = h;
+    o.fillStyle = "#f8f3ef"; o.fillRect(0, 0, w, h); o.drawImage(c0, 0, 0);
+  }
+  const blob = await new Promise((ok) => out.toBlob(ok, "image/jpeg", 0.9));
+  if (!blob) throw new Error("imagem inválida");
+  return blob;
+}
+async function definirImagem(origem) {
+  if (imagem) URL.revokeObjectURL(imagem.url);
+  imagem = null;
+  if (origem) { try { const blob = await prepararImagem(origem); imagem = { blob, url: URL.createObjectURL(blob) }; } catch (e) { imagem = null; } }
+  drawImagem();
+  return !!imagem;
+}
+const arquivoImagem = () => new File([imagem.blob], `${(st.nomePeca || "peca").replace(/[\\/:*?"<>|]+/g, " ").trim() || "peca"}.jpg`, { type: "image/jpeg" });
+function drawImagem() {
+  $("orcImg").hidden = !imagem; if (imagem) $("orcImg").src = imagem.url; else $("orcImg").removeAttribute("src");
+  $("imgPick").textContent = imagem ? "Trocar imagem" : "Escolher imagem";
+  $("imgDel").hidden = $("imgActs").hidden = !imagem;
+  let podeEnviar = false;
+  try { podeEnviar = !!imagem && !!navigator.canShare && navigator.canShare({ files: [arquivoImagem()] }); } catch (e) {}
+  $("imgShare").hidden = !podeEnviar;
+  $("imgCopy").hidden = !(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write);
+}
+$("imgFile").addEventListener("change", async () => {
+  const f = $("imgFile").files[0]; $("imgFile").value = ""; if (!f) return;
+  if (!(await definirImagem(f))) aviso($("imgPick"), "Não consegui abrir essa imagem", 2500);
+});
+$("imgDel").onclick = () => definirImagem(null);
+$("imgShare").onclick = async () => {
+  try { await navigator.share({ files: [arquivoImagem()], text: $("orcTxt").value }); }
+  catch (e) { if (!e || e.name !== "AbortError") aviso($("imgShare"), "Não foi possível compartilhar"); }
+};
+$("imgSave").onclick = () => {
+  const f = arquivoImagem(), a = document.createElement("a");
+  a.href = imagem.url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+};
+$("imgCopy").onclick = async () => {
+  try {
+    // A área de transferência só aceita PNG.
+    const png = (async () => { const b = await createImageBitmap(imagem.blob), c = document.createElement("canvas"); c.width = b.width; c.height = b.height; c.getContext("2d").drawImage(b, 0, 0); return new Promise((ok) => c.toBlob(ok, "image/png")); })();
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+    aviso($("imgCopy"), "Copiada ✓");
+  } catch (e) { aviso($("imgCopy"), "Não foi possível copiar"); }
+};
 
 // ---------- Calcular: resultado ----------
 let last = {};
@@ -246,6 +320,7 @@ $("reset").onclick = () => {
   st.qtd = "1"; st.precoFinal = ""; st.nomePeca = ""; st.dims = ""; st.cores = ""; st.orc.qtd = ""; st.pedStatus = "orcado"; st.cli = ""; st.editando = "";
   st.fils = [{ rolo: "", mat: "PLA", g: "", kg: precoPadrao("PLA") }];
   $("impMsg").hidden = true; $("salvarMsg").hidden = true;
+  definirImagem(null);
   carregarCampos();
 };
 // Padrões para novos pedidos.
@@ -555,6 +630,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 window.addEventListener("online", () => nuvem.retomar());
 
 // ---------- Início ----------
+drawImagem();
 $("versao").textContent = "v" + VERSAO;
 drawCliSel(); drawFils(); render(); mostrar(location.hash.slice(1));
 nuvem.retomar();

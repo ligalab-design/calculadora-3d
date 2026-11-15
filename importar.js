@@ -1,6 +1,6 @@
 // Importação de arquivos fatiados (Bambu Studio, OrcaSlicer, PrusaSlicer):
 // peso, tempo e, quando o arquivo traz, cores e dimensões. Sem dependência de tela.
-import { listarZip, extrairTexto, extrairInicio } from "./zip.js";
+import { listarZip, extrairTexto, extrairInicio, extrairBytes } from "./zip.js";
 
 const numero = (t) => { const n = parseFloat(String(t).trim()); return Number.isFinite(n) && n > 0 ? n : 0; };
 
@@ -151,5 +151,9 @@ export async function ler3mf(buffer) {
       }
     } catch (e) {}
   }
+  // Imagem: a miniatura da placa gerada pelo fatiador (PNG com fundo transparente).
+  res.imagem = null;
+  const png = achar(new RegExp(`(^|/)plate_${indice}\\.png$`, "i"));
+  if (png) { try { res.imagem = { nome: `plate_${indice}.png`, tipo: "image/png", bytes: await extrairBytes(buffer, png) }; } catch (e) {} }
   return res;
 }

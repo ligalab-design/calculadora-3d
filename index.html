@@ -107,6 +107,8 @@ tr.tot td{font-weight:700;border-bottom:0;padding-top:11px}
 .stock.low i{background:var(--warn)}
 .rrow{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px;align-items:end}
 .msg{font-size:.84rem;margin:12px 0 0;font-weight:500}
+#orcImg{display:block;width:100%;max-width:340px;margin:6px auto 0;border-radius:12px;border:1px solid var(--line);background:#f8f3ef}
+label.btn:not(.add){font-size:1rem;color:var(--ink);margin:0}
 .nvbar{width:100%;margin:-6px 0 16px;border-color:var(--tan);color:var(--tan-ink);font-size:.82rem;font-weight:600;min-height:42px}
 footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;margin-top:22px}
 </style>
@@ -252,7 +254,7 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
     <summary>Pedido e orçamento</summary>
     <label for="nomePeca">Nome da peça</label>
     <input id="nomePeca" placeholder="Ex.: Vaso geométrico" autocomplete="off">
-    <div class="row" style="margin-top:10px">
+    <div class="row one" style="margin-top:10px">
       <div><label for="dims">Dimensões</label><input id="dims" placeholder="Ex.: 120 × 80 × 45 mm" autocomplete="off"></div>
       <div><label for="cores">Cores</label><input id="cores" placeholder="Ex.: Preto, Branco" autocomplete="off"></div>
     </div>
@@ -279,6 +281,19 @@ footer{text-align:center;color:var(--mut);font-size:.8rem;font-style:italic;marg
       <input id="orcObs" autocomplete="off">
       <label for="orcTxt" style="margin-top:10px">Texto do orçamento</label>
       <textarea id="orcTxt" readonly></textarea>
+      <label style="margin-top:12px">Imagem da peça</label>
+      <img id="orcImg" alt="Imagem da peça para enviar ao cliente" hidden>
+      <div class="acts" style="margin-top:8px">
+        <label class="btn" for="imgFile" id="imgPick">Escolher imagem</label>
+        <input type="file" id="imgFile" accept="image/*" hidden>
+        <button id="imgDel" type="button" hidden>Remover imagem</button>
+      </div>
+      <div class="acts" id="imgActs" hidden>
+        <button class="pri" id="imgShare" type="button" hidden>Compartilhar imagem e texto</button>
+        <button id="imgSave" type="button">Baixar imagem</button>
+        <button id="imgCopy" type="button" hidden>Copiar imagem</button>
+      </div>
+      <p class="hint" id="imgHint">Ao importar um .gcode.3mf do Bambu Studio, a imagem da peça vem do próprio arquivo. A imagem vale só enquanto o app está aberto: não é salva no pedido nem sincronizada.</p>
       <div class="acts">
         <button class="pri" id="orcCopy" type="button">Copiar orçamento</button>
         <a class="btn" id="orcWa" target="_blank" rel="noopener">Abrir no WhatsApp</a>
